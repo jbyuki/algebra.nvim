@@ -283,11 +283,16 @@ return self end
 
 @sub_token_methods+=
 function self.infix(left)
-	local t = parse(self.priority())
+	local t = parse(self.priority()+1)
 	if not t then
 		return nil
 	end
-	return SubExpression(left, t)
+	-- return SubExpression(left, t)
+	if t.kind == "numexp" then
+		return AddExpression(left, NumExpression(-t.num))
+	else
+		return AddExpression(left, PrefixSubExpression(t))
+	end
 end
 function self.priority() return 50 end
 
@@ -321,7 +326,7 @@ return self end
 
 @div_token_methods+=
 function self.infix(left)
-	local t = parse(self.priority())
+	local t = parse(self.priority()+1)
 	if not t then
 		return nil
 	end
@@ -473,36 +478,28 @@ function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
 
 @mul_exp_methods+=
 function self.expand()
-	@remove_if_multiply_by_one
 	@get_upper_add_terms_while_expanding_them
 	@cross_combine_terms
 	return exp_add
 end
 
-@remove_if_multiply_by_one+=
-if self.left.kind == "numexp" and self.left.num == 1 then
-	return self.right.combined()
-end
-if self.right.kind == "numexp" and self.right.num == 1 then
-	return self.left.combined()
-end
 
 @script_variables+=
 local upper = {}
 
 @mul_exp_methods-=
-local collectUpperAdd
+local collectUpperAddExpand
 
 @mul_exp_methods+=
-function collectUpperAdd(root, collect)
+function collectUpperAddExpand(root, collect)
 	if root.kind == "addexp" then
-		collectUpperAdd(root.left, collect)
-		collectUpperAdd(root.right, collect)
+		collectUpperAddExpand(root.left, collect)
+		collectUpperAddExpand(root.right, collect)
 	else
 		local expanded = root.expand()
 		if root.kind == "mulexp" or root.kind == "expexp" then
 			if expanded.kind == "addexp" then
-				collectUpperAdd(expanded, collect)
+				collectUpperAddExpand(expanded, collect)
 			else
 				table.insert(collect, expanded)
 			end
@@ -515,8 +512,8 @@ end
 @get_upper_add_terms_while_expanding_them+=
 local collectLeft = {}
 local collectRight = {}
-collectUpperAdd(self.left, collectLeft)
-collectUpperAdd(self.right, collectRight)
+collectUpperAddExpand(self.left, collectLeft)
+collectUpperAddExpand(self.right, collectRight)
 
 @cross_combine_terms+=
 local exp_add
@@ -532,23 +529,45 @@ for _,term1 in ipairs(collectLeft) do
 end
 
 @add_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	local t1 = self.left.expand()
+	local t2 = self.right.expand()
+	return AddExpression(t1, t2)
+end
 @sub_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	local t1 = self.left.expand()
+	local t2 = self.right.expand()
+	return SubExpression(t1, t2)
+end
 @presub_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	local t1 = self.left.expand()
+	return PrefixSubExpression(t1)
+end
 @div_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	local t1 = self.left.expand()
+	local t2 = self.right.expand()
+	return DivExpression(t1, t2)
+end
 @sym_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	return SymExpression(self.sym) 
+end
 @num_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	return NumExpression(self.num)
+end
 @fun_exp_methods+=
-function self.expand() return self end
+function self.expand() 
+	local t1 = self.left.expand()
+	return FunExpression(self.name, t1) 
+end
 
 @expand_expression+=
 local expanded = exp.expand()
--- print("expanded : " .. expanded.toString())
+print("expanded : " .. expanded.toString())
 
 @add_exp_methods+=
 function self.toString() 
@@ -560,7 +579,7 @@ function self.toString()
 end
 @presub_exp_methods+=
 function self.toString() 
-	return "(-" .. self.left.toString()
+	return "(-" .. self.left.toString() .. ")"
 end
 @mul_exp_methods+=
 function self.toString() 
@@ -609,36 +628,62 @@ return exp.expand()
 
 @combine_symbols+=
 local combined = expanded.combined()
-print("combined " .. combined.toString())
+print("simplifed " .. combined.toString())
 
 @add_exp_methods-=
-local collectUpperAdd
+local collectUpperAddCombine
 
 @add_exp_methods+=
-function collectUpperAdd(root, constant, collect, collectPow, rest)
+function collectUpperAddCombine(root, constant, collect, collectPow, rest)
 	if root.kind == "addexp" then
-		constant = collectUpperAdd(root.left, constant, collect, collectPow, rest)
-		constant = collectUpperAdd(root.right, constant, collect, collectPow, rest)
+		constant = collectUpperAddCombine(root.left, constant, collect, collectPow, rest)
+		constant = collectUpperAddCombine(root.right, constant, collect, collectPow, rest)
 	else
 		local combined = root.combined()
-		if combined.kind == "symexp" then
-			if not collect[combined.sym] then
-				collect[combined.sym] = 0
-			end
-			collect[combined.sym] = collect[combined.sym] + 1
-		elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-			local powpair = {combined.left.sym, combined.right.num}
-			if not collectPow[powpair] then
-				collectPow[powpair] = 0
-			end
-			collectPow[powpair] = collectPow[powpair] + 1
-		elseif combined.kind == "numexp" then
-			constant = constant + combined.num
+		if combined.kind == "presubexp" then
+			@if_prefix_sub_add_but_negative_term
 		else
-			table.insert(rest, combined)
+			@otherwise_just_add_the_term
 		end
 	end
 	return constant
+end
+
+@if_prefix_sub_add_but_negative_term+=
+combined = combined.left
+if combined.kind == "symexp" then
+	if not collect[combined.sym] then
+		collect[combined.sym] = 0
+	end
+	collect[combined.sym] = collect[combined.sym] - 1
+elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+	local powpair = {combined.left.sym, combined.right.num}
+	if not collectPow[powpair] then
+		collectPow[powpair] = 0
+	end
+	collectPow[powpair] = collectPow[powpair] - 1
+elseif combined.kind == "numexp" then
+	constant = constant - combined.num
+else
+	table.insert(rest, PrefixSubExpression(combined))
+end
+
+@otherwise_just_add_the_term+=
+if combined.kind == "symexp" then
+	if not collect[combined.sym] then
+		collect[combined.sym] = 0
+	end
+	collect[combined.sym] = collect[combined.sym] + 1
+elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+	local powpair = {combined.left.sym, combined.right.num}
+	if not collectPow[powpair] then
+		collectPow[powpair] = 0
+	end
+	collectPow[powpair] = collectPow[powpair] + 1
+elseif combined.kind == "numexp" then
+	constant = constant + combined.num
+else
+	table.insert(rest, combined)
 end
 
 @add_exp_methods+=
@@ -646,10 +691,10 @@ function self.combined()
 	@remove_if_add_zero
 	@combine_upper_add_terms
 
-	-- print("constant " .. constant)
-	-- print("collect " .. vim.inspect(collect))
-	-- print("collectPow " .. vim.inspect(storeCollectPow))
-	-- print("rest " .. vim.inspect(rest))
+	-- print("add constant " .. constant)
+	-- print("add collect " .. vim.inspect(collect))
+	-- print("add collectPow " .. vim.inspect(storeCollectPow))
+	-- print("add rest " .. vim.inspect(rest))
 
 	local exp_add
 
@@ -658,6 +703,7 @@ function self.combined()
 	@combine_pow_terms_in_add
 	@combine_rest_terms_in_add
 
+	exp_add = exp_add or NumExpression(0)
 	return exp_add
 end
 
@@ -676,8 +722,8 @@ local collectPow = {}
 @make_collect_pow_table_access
 local rest = {}
 
-constant = collectUpperAdd(self.left, constant, collect, collectPow, rest)
-constant = collectUpperAdd(self.right, constant, collect, collectPow, rest)
+constant = collectUpperAddCombine(self.left, constant, collect, collectPow, rest)
+constant = collectUpperAddCombine(self.right, constant, collect, collectPow, rest)
 
 @make_collect_pow_table_access+=
 local storeCollectPow = {}
@@ -701,40 +747,45 @@ collectPow = setmetatable({}, {
 })
 
 @combine_constant_if_there_is_one+=
-if constant ~= 0 or (countMap(collect) == 0 and countMap(storeCollectPow) == 0 and #rest == 0) then
+if constant ~= 0 then
 	exp_add = NumExpression(constant)
 end
 
 @combine_simple_terms_in_add+=
 for sym, num in pairs(collect) do
-	local exp_mul
-	if num == 1 then
-		exp_mul = SymExpression(sym)
-	else
-		exp_mul = MulExpression(NumExpression(num), SymExpression(sym))
-	end
+	if num ~= 0 then
+		local exp_mul = SymExpression(sym)
+		if math.abs(num) ~= 1 then
+			exp_mul = MulExpression(NumExpression(math.abs(num)), exp_mul)
+		end
+		if num < 0 then
+			exp_mul = PrefixSubExpression(exp_mul)
+		end
 
-	if not exp_add then
-		exp_add = exp_mul
-	else
-		exp_add = AddExpression(exp_mul, exp_add)
+		if not exp_add then
+			exp_add = exp_mul
+		else
+			exp_add = AddExpression(exp_mul, exp_add)
+		end
 	end
 end
 
 @combine_pow_terms_in_add+=
 for pow, num in pairs(storeCollectPow) do
-	local exp_mul
-	local exp_exp = ExpExpression(SymExpression(pow[1]), NumExpression(pow[2]))
-	if num == 1 then
-		exp_mul = exp_exp
-	else
-		exp_mul = MulExpression(NumExpression(num), exp_exp)
-	end
+	if num ~= 0 then
+		local exp_mul
+		local exp_exp = ExpExpression(SymExpression(pow[1]), NumExpression(pow[2]))
+		if num == 1 then
+			exp_mul = exp_exp
+		else
+			exp_mul = MulExpression(NumExpression(num), exp_exp)
+		end
 
-	if not exp_add then
-		exp_add = exp_mul
-	else
-		exp_add = AddExpression(exp_mul, exp_add)
+		if not exp_add then
+			exp_add = exp_mul
+		else
+			exp_add = AddExpression(exp_mul, exp_add)
+		end
 	end
 end
 
@@ -767,27 +818,62 @@ function collectUpperMul(root, coeff, collect, rest)
 		coeff = collectUpperMul(root.left, coeff, collect, rest)
 		coeff = collectUpperMul(root.right, coeff, collect, rest)
 	else
-		if root.kind == "symexp" then
-			if not collect[root.sym] then
-				collect[root.sym] = 0
-			end
-			collect[root.sym] = collect[root.sym] + 1
-		elseif root.kind == "expexp" and root.left.kind == "symexp" and root.right.kind == "numexp" then
-			if not collect[root.left.sym] then
-				collect[root.left.sym] = 0
-			end
-			collect[root.left.sym] = collect[root.left.sym] + root.right.num
-		elseif root.kind == "numexp" then
-			coeff = coeff * root.num
+		if root.kind == "presubexp" then
+			@if_prefix_sub_add_negative_and_combine_left
 		else
-			table.insert(rest, root.combined())
+			@otherwise_combine_mul_directly
 		end
 	end
 	return coeff
 end
 
+@if_prefix_sub_add_negative_and_combine_left+=
+root = root.left
+if root.kind == "symexp" then
+	if not collect[root.sym] then
+		collect[root.sym] = 0
+	end
+	collect[root.sym] = -(collect[root.sym] + 1)
+elseif root.kind == "expexp" and root.left.kind == "symexp" and root.right.kind == "numexp" then
+	if not collect[root.left.sym] then
+		collect[root.left.sym] = 0
+	end
+	collect[root.left.sym] = -(collect[root.left.sym] + root.right.num)
+elseif root.kind == "numexp" then
+	coeff = coeff * -root.num
+else
+	table.insert(rest, PrefixSubExpression(root.combined()))
+end
+
+@otherwise_combine_mul_directly+=
+if root.kind == "symexp" then
+	if not collect[root.sym] then
+		collect[root.sym] = 0
+	end
+	if collect[root.sym] < 0 then
+		collect[root.sym] = collect[root.sym] - 1
+	else 
+		collect[root.sym] = collect[root.sym] + 1
+	end
+elseif root.kind == "expexp" and root.left.kind == "symexp" and root.right.kind == "numexp" then
+	if not collect[root.left.sym] then
+		collect[root.left.sym] = 0
+	end
+	if collect[root.left.sym] < 0 then
+		collect[root.left.sym] = collect[root.left.sym] - root.right.num
+	else
+		collect[root.left.sym] = collect[root.left.sym] + root.right.num
+	end
+elseif root.kind == "numexp" then
+	coeff = coeff * root.num
+else
+	table.insert(rest, root.combined())
+end
+
 @mul_exp_methods+=
 function self.combined() 
+	@remove_if_multiply_by_one
+	@remove_if_multiply_by_minus_one
 	@combine_terms_upper_mul
 
 	local exp_mul
@@ -795,7 +881,24 @@ function self.combined()
 	@combine_unknown_power
 	@combine_rest_terms
 
+	exp_mul = exp_mul or NumExpression(0)
 	return exp_mul
+end
+
+@remove_if_multiply_by_one+=
+if self.left.kind == "numexp" and self.left.num == 1 then
+	return self.right.combined()
+end
+if self.right.kind == "numexp" and self.right.num == 1 then
+	return self.left.combined()
+end
+
+@remove_if_multiply_by_minus_one+=
+if self.left.kind == "numexp" and self.left.num == -1 then
+	return PrefixSubExpression(self.right.combined())
+end
+if self.right.kind == "numexp" and self.right.num == -1 then
+	return PrefixSubExpression(self.left.combined())
 end
 
 @combine_terms_upper_mul+=
@@ -804,6 +907,10 @@ local rest = {}
 local coeff = 1
 coeff = collectUpperMul(self.left, coeff, collectAll, rest)
 coeff = collectUpperMul(self.right, coeff, collectAll, rest)
+
+-- print("mul collectAll " .. vim.inspect(collectAll))
+-- print("mul rest " .. vim.inspect(rest))
+-- print("mul coeff " .. vim.inspect(coeff))
 
 @declare_functions+=
 local countMap
@@ -824,17 +931,21 @@ end
 
 @combine_unknown_power+=
 for term, power in pairs(collectAll) do
-	local exp_pow
-	if power == 1 then
-		exp_pow = SymExpression(term)
-	else 
-		exp_pow = ExpExpression(SymExpression(term), NumExpression(power))
-	end
+	if power ~= 0 then
+		local exp_pow = SymExpression(term)
+		if math.abs(power) ~= 1 then
+			exp_pow = ExpExpression(exp_pow, NumExpression(math.abs(power)))
+		end
 
-	if not exp_mul then
-		exp_mul = exp_pow
-	else
-		exp_mul = MulExpression(exp_mul, exp_pow)
+		if power < 0 then
+			exp_pow = PrefixSubExpression(exp_pow)
+		end
+
+		if not exp_mul then
+			exp_mul = exp_pow
+		else
+			exp_mul = MulExpression(exp_mul, exp_pow)
+		end
 	end
 end
 
