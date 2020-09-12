@@ -1,0 +1,677 @@
+local parseAll
+
+local nocase
+
+local nextToken
+
+local finish
+
+local getToken
+
+local parse
+
+local AddExpression
+
+local PrefixSubExpression
+
+local SubExpression
+
+local MulExpression
+
+local DivExpression
+
+local NumExpression
+
+local SymExpression
+
+local FunExpression
+
+local ExpExpression
+
+local countMap
+
+function countMap(a)
+	local c = 0
+	for _,_ in pairs(a) do
+		c = c+1
+	end
+	return c
+end
+
+tokens = {}
+
+events = {}
+
+local token_index
+
+local funs = {
+	sin = math.sin,
+	cos = math.cos,
+	tan = math.tan,
+	sqrt = math.sqrt,
+	asin = math.asin,
+	acos = math.acos,
+	atan = math.atan,
+	ln = math.log,
+	log = math.log10,
+	exp = math.exp,
+	atan2 = math.atan2,
+	abs = math.abs,
+	
+}
+
+local upper = {}
+
+function AddExpression(left, right) 
+	local self = { kind = "addexp", left = left, right = right }
+	local collectUpperAdd
+	
+	function self.eval() return self.left.eval() + self.right.eval() end
+	function self.expand() return self end
+	function self.toString() 
+		return "(" .. self.left.toString() .. " + " .. self.right.toString() .. ")"
+	end
+	function collectUpperAdd(root, constant, collect, collectPow, rest)
+		if root.kind == "addexp" then
+			constant = collectUpperAdd(root.left, constant, collect, collectPow, rest)
+			constant = collectUpperAdd(root.right, constant, collect, collectPow, rest)
+		else
+			local combined = root.combined()
+			if combined.kind == "symexp" then
+				if not collect[combined.sym] then
+					collect[combined.sym] = 0
+				end
+				collect[combined.sym] = collect[combined.sym] + 1
+			elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+				local powpair = {combined.left.sym, combined.right.num}
+				if not collectPow[powpair] then
+					collectPow[powpair] = 0
+				end
+				collectPow[powpair] = collectPow[powpair] + 1
+			elseif combined.kind == "numexp" then
+				constant = constant + combined.num
+			else
+				table.insert(rest, combined)
+			end
+		end
+		return constant
+	end
+	
+	function self.combined() 
+		if self.left.kind == "numexp" and self.left.num == 0 then
+			return self.right.combined()
+		end
+		if self.right.kind == "numexp" and self.right.num == 0 then
+			return self.left.combined()
+		end
+		
+		local constant = 0
+		local collect = {}
+		local collectPow = {}
+		local storeCollectPow = {}
+		collectPow = setmetatable({}, {
+			__newindex = function(tbl, key, val)
+				for k,v in pairs(storeCollectPow) do
+					if k[1] == key[1] and k[2] == key[2] then
+						storeCollectPow[k] = val
+						return
+					end
+				end
+				storeCollectPow[key] = val
+			end,
+			__index = function(tbl, key)
+				for k,v in pairs(storeCollectPow) do
+					if k[1] == key[1] and k[2] == key[2] then
+						return v
+					end
+				end
+			end
+		})
+		
+		local rest = {}
+		
+		constant = collectUpperAdd(self.left, constant, collect, collectPow, rest)
+		constant = collectUpperAdd(self.right, constant, collect, collectPow, rest)
+		
+	
+		-- print("constant " .. constant)
+		-- print("collect " .. vim.inspect(collect))
+		-- print("collectPow " .. vim.inspect(storeCollectPow))
+		-- print("rest " .. vim.inspect(rest))
+	
+		local exp_add
+	
+		if constant ~= 0 or (countMap(collect) == 0 and countMap(storeCollectPow) == 0 and #rest == 0) then
+			exp_add = NumExpression(constant)
+		end
+		
+		for sym, num in pairs(collect) do
+			local exp_mul
+			if num == 1 then
+				exp_mul = SymExpression(sym)
+			else
+				exp_mul = MulExpression(NumExpression(num), SymExpression(sym))
+			end
+		
+			if not exp_add then
+				exp_add = exp_mul
+			else
+				exp_add = AddExpression(exp_mul, exp_add)
+			end
+		end
+		
+		for pow, num in pairs(storeCollectPow) do
+			local exp_mul
+			local exp_exp = ExpExpression(SymExpression(pow[1]), NumExpression(pow[2]))
+			if num == 1 then
+				exp_mul = exp_exp
+			else
+				exp_mul = MulExpression(NumExpression(num), exp_exp)
+			end
+		
+			if not exp_add then
+				exp_add = exp_mul
+			else
+				exp_add = AddExpression(exp_mul, exp_add)
+			end
+		end
+		
+		for _, term in ipairs(rest) do
+			if not exp_add then
+				exp_add = term
+			else
+				exp_add = AddExpression(exp_mul, term)
+			end
+		end
+		
+	
+		return exp_add
+	end
+	
+return self end
+
+function PrefixSubExpression(left) 
+	local self = { kind = "presubexp", left = left }
+	function self.eval() return -self.left.eval() end
+	
+	function self.expand() return self end
+	function self.toString() 
+		return "(-" .. self.left.toString()
+	end
+	function self.combined() 
+		local t1 = self.left.combined()
+		return PrefixSubExpression(t1)
+	end
+return self end
+
+function SubExpression(left, right)
+	local self = { kind = "subexp", left = left, right = right }
+	function self.eval() return self.left.eval() - self.right.eval() end
+	function self.expand() return self end
+	function self.toString() 
+		return "(" .. self.left.toString() .. " - " .. self.right.toString() .. ")"
+	end
+	function self.combined() 
+		local t1 = self.left.combined()
+		local t2 = self.right.combined()
+		return SubExpression(t1, t2)
+	end
+return self end
+
+function MulExpression(left, right)
+	local self = { kind = "mulexp", left = left, right = right }
+	local collectUpperMul
+	
+	local collectUpperAdd
+	
+	function self.eval() return self.left.eval() * self.right.eval() end
+	function self.expand()
+		if self.left.kind == "numexp" and self.left.num == 1 then
+			return self.right.combined()
+		end
+		if self.right.kind == "numexp" and self.right.num == 1 then
+			return self.left.combined()
+		end
+		
+		local collectLeft = {}
+		local collectRight = {}
+		collectUpperAdd(self.left, collectLeft)
+		collectUpperAdd(self.right, collectRight)
+		
+		local exp_add
+		for _,term1 in ipairs(collectLeft) do
+			for _,term2 in ipairs(collectRight) do
+				exp_mul = MulExpression(vim.deepcopy(term1), vim.deepcopy(term2))
+				if exp_add then
+					exp_add = AddExpression(exp_add, exp_mul)
+				else
+					exp_add = exp_mul
+				end
+			end
+		end
+		
+		return exp_add
+	end
+	
+	function collectUpperAdd(root, collect)
+		if root.kind == "addexp" then
+			collectUpperAdd(root.left, collect)
+			collectUpperAdd(root.right, collect)
+		else
+			local expanded = root.expand()
+			if root.kind == "mulexp" or root.kind == "expexp" then
+				if expanded.kind == "addexp" then
+					collectUpperAdd(expanded, collect)
+				else
+					table.insert(collect, expanded)
+				end
+			else
+				table.insert(collect, expanded)
+			end
+		end
+	end
+	
+	function self.toString() 
+		return "(" .. self.left.toString() .. " * " .. self.right.toString() .. ")"
+	end
+	function collectUpperMul(root, coeff, collect, rest)
+		if root.kind == "mulexp" then
+			coeff = collectUpperMul(root.left, coeff, collect, rest)
+			coeff = collectUpperMul(root.right, coeff, collect, rest)
+		else
+			if root.kind == "symexp" then
+				if not collect[root.sym] then
+					collect[root.sym] = 0
+				end
+				collect[root.sym] = collect[root.sym] + 1
+			elseif root.kind == "expexp" and root.left.kind == "symexp" and root.right.kind == "numexp" then
+				if not collect[root.left.sym] then
+					collect[root.left.sym] = 0
+				end
+				collect[root.left.sym] = collect[root.left.sym] + root.right.num
+			elseif root.kind == "numexp" then
+				coeff = coeff * root.num
+			else
+				table.insert(rest, root.combined())
+			end
+		end
+		return coeff
+	end
+	
+	function self.combined() 
+		local collectAll = {}
+		local rest = {}
+		local coeff = 1
+		coeff = collectUpperMul(self.left, coeff, collectAll, rest)
+		coeff = collectUpperMul(self.right, coeff, collectAll, rest)
+		
+	
+		local exp_mul
+		if coeff ~= 1 or (countMap(collectAll) == 0 and #rest == 0) then
+			exp_mul = NumExpression(coeff)
+		end
+		
+		for term, power in pairs(collectAll) do
+			local exp_pow
+			if power == 1 then
+				exp_pow = SymExpression(term)
+			else 
+				exp_pow = ExpExpression(SymExpression(term), NumExpression(power))
+			end
+		
+			if not exp_mul then
+				exp_mul = exp_pow
+			else
+				exp_mul = MulExpression(exp_mul, exp_pow)
+			end
+		end
+		
+		for _, term in ipairs(rest) do
+			local exp_pow = term
+			if not exp_mul then
+				exp_mul = term
+			else
+				exp_mul = MulExpression(exp_mul, term)
+			end
+		end
+		
+	
+		return exp_mul
+	end
+	
+return self end
+
+function DivExpression(left, right)
+	local self = { kind = "divexp", left = left, right = right }
+	function self.eval() return self.left.eval() / self.right.eval() end
+	function self.expand() return self end
+	function self.toString() 
+		return "(" .. self.left.toString() .. " / " .. self.right.toString() .. ")"
+	end
+	function self.combined() 
+		local t1 = self.left.combined()
+		local t2 = self.right.combined()
+		return DivExpression(t1, t2)
+	end
+return self end
+
+function NumExpression(num)
+	local self = { kind = "numexp", num = num }
+	function self.eval() return self.num end
+	function self.expand() return self end
+	function self.toString() 
+		return self.num
+	end
+	function self.combined() 
+		return NumExpression(self.num)
+	end
+return self end
+
+function SymExpression(sym)
+	local self = { kind = "symexp", sym = sym }
+	function self.eval() return 0 end
+	function self.expand() return self end
+	function self.toString() 
+		return self.sym
+	end
+	function self.combined() 
+		return SymExpression(self.sym)
+	end
+return self end
+
+function FunExpression(name, left)
+	local self = { kind = "funexp", name = name, left = left }
+	function self.eval() return funs[self.name](self.left.eval()) end
+	
+	function self.expand() return self end
+	
+	function self.toString() 
+		return self.name .. "(" .. self.left.toString() .. ")"
+	end
+	
+	function self.combined() 
+		local t1 = self.left.combined()
+		return NumExpression(self.name, t1)
+	end
+return self end
+
+function ExpExpression(left, right)
+	local self = { kind = "expexp", left = left, right = right }
+	function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
+	
+	function self.toString() 
+		return "(" .. self.left.toString() .. " ^ " .. self.right.toString() .. ")"
+	end
+	function self.expand() 
+		if self.right.kind == "numexp" and math.floor(self.right.num) == self.right.num and self.right.num > 1 then
+			local term1 = vim.deepcopy(self.left)
+			local term2
+			if self.right.num > 2 then
+				term2 = ExpExpression(vim.deepcopy(self.left), NumExpression(self.right.num-1))
+			else 
+				term2 = vim.deepcopy(self.left)
+			end
+			local exp = MulExpression(term1, term2)
+			return exp.expand()
+			
+		else
+			return self 
+		end
+	end
+	
+	function self.combined() 
+		local t1 = self.left.combined()
+		local t2 = self.right.combined()
+		return ExpExpression(t1, t2)
+	end
+return self end
+
+-- closure-based object
+local function AddToken() local self = { kind = "add" }
+	function self.prefix()
+		return parse(self.priority())
+	end
+	
+	function self.infix(left)
+		local t = parse(self.priority())
+		if not t then
+			return nil
+		end
+		return AddExpression(left, t)
+	end
+	function self.priority() return 50 end
+	
+return self end
+local function SubToken() local self = { kind = "sub" }
+	function self.prefix()
+		local t = parse(90)
+		if not t then
+			return nil
+		end
+		return PrefixSubExpression(t)
+	end
+	
+	function self.infix(left)
+		local t = parse(self.priority())
+		if not t then
+			return nil
+		end
+		return SubExpression(left, t)
+	end
+	function self.priority() return 50 end
+	
+return self end
+local function MulToken() local self = { kind = "mul" }
+	function self.infix(left)
+		local t = parse(self.priority())
+		if not t then
+			return nil
+		end
+		return MulExpression(left, t)
+	end
+	function self.priority() return 60 end
+	
+return self end
+local function DivToken() local self = { kind = "div" }
+	function self.infix(left)
+		local t = parse(self.priority())
+		if not t then
+			return nil
+		end
+		return DivExpression(left, t)
+	end
+	function self.priority() return 60 end
+	
+return self end
+
+local function RParToken() local self = { kind = "rpar" }
+	function self.priority() return 10 end
+	
+return self end
+local function LParToken() local self = { kind = "lpar" }
+	function self.prefix()
+		local exp = parse(20)
+		if not exp then
+			return nil
+		end
+		local rpar = nextToken()
+		if not rpar or rpar.kind ~= "rpar" then 
+			table.insert(events, "Unmatched '('")
+			return nil
+		end
+		
+		return exp
+	end
+	
+	function self.priority() return 100 end
+	
+	function self.infix(left)
+		local exp = parse(20)
+		if not exp then
+			return nil
+		end
+		local rpar = nextToken()
+		if not rpar or rpar.kind ~= "rpar" then 
+			table.insert(events, "Unmatched '('")
+			return nil
+		end
+		
+		local name = left.sym
+		return FunExpression(name, exp)
+	end
+	
+return self end
+
+local function NumToken(num) local self = { kind = "num", num = num }
+	function self.prefix()
+		return NumExpression(self.num)
+	end
+	
+return self end
+
+local function SymToken(sym) local self = { kind = "sym", sym = sym }
+	function self.prefix()
+		return SymExpression(self.sym)
+	end
+	
+return self end
+
+local function ExpToken() local self = { kind = "exp" }
+	function self.infix(left)
+		local exp = parse(self.priority())
+		if not exp then
+			return nil
+		end
+		return ExpExpression(left, exp)
+	end
+	function self.priority() return 70 end
+	
+return self end
+
+
+function nocase (s)
+	s = string.gsub(s, "%a", function (c)
+		if string.match(c, "[a-zA-Z]") then
+			return string.format("[%s%s]", 
+				string.lower(c),
+				string.upper(c))
+		else
+			return c
+		end
+	end)
+	return s
+end
+
+function nextToken()
+	local token = tokens[token_index]
+	token_index = token_index + 1
+	return token
+end
+
+function finish()
+	return token_index > #tokens
+end
+
+function getToken()
+	return tokens[token_index]
+end
+
+function parse(p)
+	local t = nextToken()
+	if not t then
+		return nil
+	end
+
+	if not t.prefix then
+		print(t.kind)
+	end
+	local exp = t.prefix()
+
+	while exp and not finish() and p <= getToken().priority() do
+		t = nextToken()
+		exp = t.infix(exp)
+	end
+	return exp
+end
+
+
+function parseAll(str)
+	tokens = {}
+	
+	local i = 1
+	while i <= string.len(str) do
+		local c = string.sub(str, i, i)
+		
+		if string.match(c, "%s") then
+			i = i+1 
+		
+		elseif c == "+" then table.insert(tokens, AddToken()) i = i+1
+		elseif c == "-" then table.insert(tokens, SubToken()) i = i+1
+		elseif c == "*" then table.insert(tokens, MulToken()) i = i+1
+		elseif c == "/" then table.insert(tokens, DivToken()) i = i+1
+		
+		elseif c == "^" then table.insert(tokens, ExpToken()) i = i+1
+		
+		elseif c == "(" then table.insert(tokens, LParToken()) i = i+1
+		elseif c == ")" then table.insert(tokens, RParToken()) i = i+1
+		
+		elseif string.match(c, "%d") then 
+			local parsed = string.match(string.sub(str, i), "%d+%.?%d*")
+			i = i+string.len(parsed)
+			table.insert(tokens, NumToken(tonumber(parsed))) 
+		
+		elseif string.match(c, "%a") then
+			if #tokens > 0 and tokens[#tokens].kind == "num" then
+				table.insert(tokens, MulToken())
+			end
+			
+			local parsed = string.match(string.sub(str, i), "%a+")
+			i = i+string.len(parsed)
+			
+			if string.match(parsed, "^" .. nocase("pi") .. "$") then
+				table.insert(tokens, NumToken(3.14159265258979))
+			elseif string.match(parsed, "^" .. nocase("e") .. "$") then
+				table.insert(tokens, NumToken(2.71828182845905))
+			
+			else
+				table.insert(tokens, SymToken(parsed))
+			end
+			
+		
+		else
+			table.insert(events, "Unexpected character insert " .. c)
+			i = i+1
+		end
+		
+	end
+	
+	token_index = 1
+	
+	local exp = parse(0)
+	
+	return exp
+end
+
+local function expand()
+	local line = vim.api.nvim_get_current_line()
+	
+	local exp = parseAll(line)
+	if not exp then
+		return
+	end
+	
+	-- @print_result
+	local expanded = exp.expand()
+	-- print("expanded : " .. expanded.toString())
+	
+	local combined = expanded.combined()
+	print("combined " .. combined.toString())
+	
+end
+
+
+return {
+expand = expand,
+
+}
+
