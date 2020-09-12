@@ -40,6 +40,10 @@ function countMap(a)
 	return c
 end
 
+local isZero
+
+local isOne
+
 tokens = {}
 
 events = {}
@@ -296,6 +300,18 @@ function AddExpression(left, right)
 		return exp_add
 	end
 	
+	function self.expand() 
+		return self
+	end
+	function self.derive(sym) 
+		local t1 = self.left.derive(sym)
+		local t2 = self.right.derive(sym)
+	
+		if isZero(t1) then return t2 end
+		if isZero(t2) then return t1 end
+	
+		return AddExpression(t1, t2)
+	end
 return self end
 
 function PrefixSubExpression(left) 
@@ -316,6 +332,14 @@ function PrefixSubExpression(left)
 		end
 		return PrefixSubExpression(t1)
 	end
+	function self.expand() 
+		return self
+	end
+	function self.derive(sym) 
+		local t1 = self.left.derive(sym)
+		if isZero(t1) then return t1 end
+		return PrefixSubExpression(t1)
+	end
 return self end
 
 function SubExpression(left, right)
@@ -332,6 +356,18 @@ function SubExpression(left, right)
 	function self.combined() 
 		local t1 = self.left.combined()
 		local t2 = self.right.combined()
+		return SubExpression(t1, t2)
+	end
+	function self.expand() 
+		return self
+	end
+	function self.derive(sym) 
+		local t1 = self.left.derive(sym)
+		local t2 = self.right.derive(sym)
+	
+		if isZero(t1) then return PrefixSubExpression(t2) end
+		if isZero(t2) then return t1 end
+	
 		return SubExpression(t1, t2)
 	end
 return self end
@@ -528,6 +564,19 @@ function MulExpression(left, right)
 		return exp_mul
 	end
 	
+	function self.derive(sym) 
+		-- u'v + uv'
+		local t1 = self.left.derive(sym)
+		local t2 = self.right.derive(sym)
+	
+		local p1 = MulExpression(t1, vim.deepcopy(self.right))
+		local p2 = MulExpression(vim.deepcopy(self.left), t2)
+	
+		if isZero(t1) then return p2 end
+		if isZero(t2) then return p1 end
+	
+		return AddExpression(p1, p2)
+	end
 return self end
 
 function DivExpression(left, right)
@@ -546,6 +595,30 @@ function DivExpression(left, right)
 		local t2 = self.right.combined()
 		return DivExpression(t1, t2)
 	end
+	function self.expand() 
+		return self
+	end
+	function self.derive(sym) 
+		-- (u'v - uv')/v^2
+		local t1 = self.left.derive(sym)
+		local t2 = self.right.derive(sym)
+	
+		local p1 = MulExpression(t1, vim.deepcopy(self.right))
+		local p2 = MulExpression(vim.deepcopy(self.left), t2)
+		local den = MulExpression(vim.deepcopy(self.right), vim.deepcopy(self.right))
+	
+		if isZero(t1) then
+			local d = DivExpression(p2, den)
+			return PrefixSubExpression(d)
+		end
+	
+		if isZero(t2) then
+			return DivExpression(t1, vim.deepcopy(self.right))
+		end
+	
+		local num = SubExpression(p1, p2)
+		return DivExpression(num, den)
+	end
 return self end
 
 function NumExpression(num)
@@ -560,6 +633,12 @@ function NumExpression(num)
 	function self.combined() 
 		return NumExpression(self.num)
 	end
+	function self.expand() 
+		return self
+	end
+	function self.derive(sym) 
+		return NumExpression(0)
+	end
 return self end
 
 function SymExpression(sym)
@@ -573,6 +652,14 @@ function SymExpression(sym)
 	end
 	function self.combined() 
 		return SymExpression(self.sym)
+	end
+	function self.expand() 
+		return self
+	end
+	function self.derive(sym) 
+		if self.sym == sym then 
+			return NumExpression(1) 
+		else return NumExpression(0) end
 	end
 return self end
 
@@ -591,8 +678,53 @@ function FunExpression(name, left)
 	
 	function self.combined() 
 		local t1 = self.left.combined()
-		return NumExpression(self.name, t1)
+		return FunExpression(self.name, t1)
 	end
+	
+	function self.expand() 
+		return self
+	end
+	
+	function self.derive(sym) 
+		if self.name == "" then
+		elseif self.name == "cos" then
+			-- -sin(u)*u'
+			local l = FunExpression("sin", vim.deepcopy(self.left))
+			local t1 = self.left.derive(sym)
+			local p = MulExpression(l, t1)
+			if isZero(t1) then
+				return t1
+			elseif isOne(t1) then
+				p = l
+			end
+			return PrefixSubExpression(p)
+		elseif self.name == "sin" then
+			-- cos(u)*u'
+			local l = FunExpression("cos", vim.deepcopy(self.left))
+			local t1 = self.left.derive(sym)
+			local p = MulExpression(l, t1)
+			if isZero(t1) then
+				return t1
+			elseif isOne(t1) then
+				p = l
+			end
+			return p
+		elseif self.name == "sqrt" then
+			-- u'/(2*sqrt(u))
+			local t1 = self.left.derive(sym)
+			if isZero(t1) then
+				return t1
+			end
+		
+			local p = MulExpression(NumExpression(2), vim.deepcopy(self))
+			local d = DivExpression(t1, p)
+			return d
+		
+		else 
+			table.insert(events, "Unknown function " .. self.name)
+		end
+	end
+	
 return self end
 
 function ExpExpression(left, right)
@@ -624,6 +756,28 @@ function ExpExpression(left, right)
 		local t2 = self.right.combined()
 		return ExpExpression(t1, t2)
 	end
+	function self.derive(sym) 
+		-- just support constant number exponents
+		if self.right.kind == "numexp" then
+			local exp = self.right.num
+			if exp == 1 then
+				return self.left.derive(sym)
+			end
+	
+			local x = ExpExpression(vim.deepcopy(self.left), NumExpression(exp-1))
+			local l = MulExpression(vim.deepcopy(self.right), x)
+	
+			local t1 = self.left.derive(sym)
+			local p = MulExpression(l, t1)
+			if isZero(t1) then
+				return t1
+			elseif isOne(t1) then
+				p = l
+			end
+			return p
+		end
+	end
+	
 return self end
 
 -- closure-based object
@@ -807,6 +961,14 @@ function copysign(mag, sign)
 	end
 end
 
+function isZero(exp)
+	return exp.kind == "numexp" and exp.num == 0
+end
+
+function isOne(exp)
+	return exp.kind == "num" and exp.num == 1
+end
+
 
 function parseAll(str)
 	tokens = {}
@@ -881,6 +1043,9 @@ local function expand()
 	table.insert(events, combined.toString())
 	print("simplifed " .. combined.toString())
 	
+	local derived = combined.derive("x")
+	derived = derived.expand().combined()
+	print("derived " .. derived.toString())
 end
 
 
