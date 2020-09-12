@@ -897,15 +897,10 @@ local factor = -1
 if combined.kind == "symexp" then
 	@combine_mul_sym_exp
 elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+	local sym, num = combined.left.sym, combined.right.num
 	@combine_mul_exp_exp
 elseif combined.kind == "numexp" then
 	coeff = coeff * -combined.num
-elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-	local sym, num = combined.left.sym, combined.right.num
-	@combine_mul_mul_exp
-elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-	local sym, num = combined.right.sym, combined.left.num
-	@combine_mul_mul_exp
 else
 	table.insert(rest, PrefixSubExpression(combined))
 end
@@ -927,24 +922,13 @@ local factor = 1
 if combined.kind == "symexp" then
 	@combine_mul_sym_exp
 elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+	local sym, num = combined.left.sym, combined.right.num
 	@combine_mul_exp_exp
 elseif combined.kind == "numexp" then
 	coeff = coeff * combined.num
-elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-	local sym, num = combined.left.sym, combined.right.num
-	@combine_mul_mul_exp
-elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-	local sym, num = combined.right.sym, combined.left.num
-	@combine_mul_mul_exp
 else
 	table.insert(rest, combined)
 end
-
-@combine_mul_exp_exp+=
-if not collect[sym] then
-	collect[sym] = 0
-end
-collect[sym] = copysign(math.abs(collect[sym]) * num, collect[sym]*num*factor)
 
 @mul_exp_methods+=
 function self.combined() 
@@ -952,9 +936,9 @@ function self.combined()
 	@remove_if_multiply_by_minus_one
 	@combine_terms_upper_mul
 
-	-- print("mul collectAll " .. vim.inspect(collectAll))
-	-- print("mul rest " .. vim.inspect(rest))
-	-- print("mul coeff " .. vim.inspect(coeff))
+	print("mul collectAll " .. vim.inspect(collectAll))
+	print("mul rest " .. vim.inspect(rest))
+	print("mul coeff " .. vim.inspect(coeff))
 
 	local exp_mul
 	@combine_unknown_power

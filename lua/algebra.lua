@@ -438,22 +438,14 @@ function MulExpression(left, right)
 					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*factor)
 					
 				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					local sym, num = combined.left.sym, combined.right.num
 					if not collect[combined.left.sym] then
 						collect[combined.left.sym] = 0
 					end
 					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*factor)
 					
-					if not collect[sym] then
-						collect[sym] = 0
-					end
-					collect[sym] = copysign(math.abs(collect[sym]) * num, collect[sym]*num*factor)
-					
 				elseif combined.kind == "numexp" then
 					coeff = coeff * -combined.num
-				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-					local sym, num = combined.left.sym, combined.right.num
-				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-					local sym, num = combined.right.sym, combined.left.num
 				else
 					table.insert(rest, PrefixSubExpression(combined))
 				end
@@ -467,22 +459,14 @@ function MulExpression(left, right)
 					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*factor)
 					
 				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					local sym, num = combined.left.sym, combined.right.num
 					if not collect[combined.left.sym] then
 						collect[combined.left.sym] = 0
 					end
 					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*factor)
 					
-					if not collect[sym] then
-						collect[sym] = 0
-					end
-					collect[sym] = copysign(math.abs(collect[sym]) * num, collect[sym]*num*factor)
-					
 				elseif combined.kind == "numexp" then
 					coeff = coeff * combined.num
-				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-					local sym, num = combined.left.sym, combined.right.num
-				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-					local sym, num = combined.right.sym, combined.left.num
 				else
 					table.insert(rest, combined)
 				end
@@ -515,9 +499,9 @@ function MulExpression(left, right)
 		
 		
 	
-		-- print("mul collectAll " .. vim.inspect(collectAll))
-		-- print("mul rest " .. vim.inspect(rest))
-		-- print("mul coeff " .. vim.inspect(coeff))
+		print("mul collectAll " .. vim.inspect(collectAll))
+		print("mul rest " .. vim.inspect(rest))
+		print("mul coeff " .. vim.inspect(coeff))
 	
 		local exp_mul
 		for term, power in pairs(collectAll) do
