@@ -28,6 +28,8 @@ local FunExpression
 
 local ExpExpression
 
+local putParen
+
 local copysign
 
 local countMap
@@ -44,11 +46,41 @@ local isZero
 
 local isOne
 
+local putParenLatex
+
 tokens = {}
 
 events = {}
 
 local token_index
+
+local priority_list = {
+	["add"] = 50,
+	
+	["sub"] = 50,
+	
+	["mul"] = 60,
+	
+	["div"] = 60,
+	
+	["lpar"] = 100,
+	
+	["rpar"] = 10,
+	
+	["exp"] = 70,
+	
+	["presub"] = 90,
+	["exp"] = 90,
+	["sym"] = 110,
+	["num"] = 110,
+	["fun"] = 100,
+	
+	["rbra"] = 5,
+	["comma"] = 5,
+	["semi"] = 5,
+	
+	["mat"] = 110,
+}
 
 local funs = {
 	sin = math.sin,
@@ -79,7 +111,7 @@ function AddExpression(left, right)
 		return AddExpression(t1, t2)
 	end
 	function self.toString() 
-		return "(" .. self.left.toString() .. " + " .. self.right.toString() .. ")"
+		return putParen(self.left, self.priority()) .. "+" .. putParen(self.right, self.priority())
 	end
 	function collectUpperAddCombine(root, constant, collect, collectPow, rest)
 		if root.kind == "addexp" then
@@ -312,6 +344,12 @@ function AddExpression(left, right)
 	
 		return AddExpression(t1, t2)
 	end
+	function self.priority() 
+		return priority_list["add"]
+	end
+	function self.toLatex() 
+		return putParenLatex(self.left, self.priority()) .. "+" .. putParenLatex(self.right, self.priority())
+	end
 return self end
 
 function PrefixSubExpression(left) 
@@ -323,7 +361,7 @@ function PrefixSubExpression(left)
 		return PrefixSubExpression(t1)
 	end
 	function self.toString() 
-		return "(-" .. self.left.toString() .. ")"
+		return "-" .. putParen(self.left, self.priority()) .. ""
 	end
 	function self.combined() 
 		local t1 = self.left.combined()
@@ -340,6 +378,12 @@ function PrefixSubExpression(left)
 		if isZero(t1) then return t1 end
 		return PrefixSubExpression(t1)
 	end
+	function self.priority() 
+		return priority_list["presub"]
+	end
+	function self.toLatex() 
+		return "-" .. putParenLatex(self.left, self.priority()) .. ""
+	end
 return self end
 
 function SubExpression(left, right)
@@ -351,7 +395,7 @@ function SubExpression(left, right)
 		return SubExpression(t1, t2)
 	end
 	function self.toString() 
-		return "(" .. self.left.toString() .. " - " .. self.right.toString() .. ")"
+		return putParen(self.left, self.priority()) .. "-" .. putParen(self.right, self.priority())
 	end
 	function self.combined() 
 		local t1 = self.left.combined()
@@ -369,6 +413,12 @@ function SubExpression(left, right)
 		if isZero(t2) then return t1 end
 	
 		return SubExpression(t1, t2)
+	end
+	function self.priority() 
+		return priority_list["sub"]
+	end
+	function self.toLatex() 
+		return putParenLatex(self.left, self.priority()) .. "-" .. putParenLatex(self.right, self.priority())
 	end
 return self end
 
@@ -420,7 +470,7 @@ function MulExpression(left, right)
 	end
 	
 	function self.toString() 
-		return "(" .. self.left.toString() .. " * " .. self.right.toString() .. ")"
+		return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
 	end
 	function collectUpperMul(root, coeff, collect, rest)
 		if root.kind == "mulexp" then
@@ -499,9 +549,9 @@ function MulExpression(left, right)
 		
 		
 	
-		print("mul collectAll " .. vim.inspect(collectAll))
-		print("mul rest " .. vim.inspect(rest))
-		print("mul coeff " .. vim.inspect(coeff))
+		-- print("mul collectAll " .. vim.inspect(collectAll))
+		-- print("mul rest " .. vim.inspect(rest))
+		-- print("mul coeff " .. vim.inspect(coeff))
 	
 		local exp_mul
 		for term, power in pairs(collectAll) do
@@ -561,6 +611,12 @@ function MulExpression(left, right)
 	
 		return AddExpression(p1, p2)
 	end
+	function self.priority() 
+		return priority_list["mul"]
+	end
+	function self.toLatex() 
+		return putParenLatex(self.left, self.priority()) .. " \\cdot " .. putParenLatex(self.right, self.priority())
+	end
 return self end
 
 function DivExpression(left, right)
@@ -572,7 +628,7 @@ function DivExpression(left, right)
 		return DivExpression(t1, t2)
 	end
 	function self.toString() 
-		return "(" .. self.left.toString() .. " / " .. self.right.toString() .. ")"
+		return putParen(self.left, self.priority()) .. "/" .. putParen(self.right, self.priority())
 	end
 	function self.combined() 
 		local t1 = self.left.combined()
@@ -603,6 +659,12 @@ function DivExpression(left, right)
 		local num = SubExpression(p1, p2)
 		return DivExpression(num, den)
 	end
+	function self.priority() 
+		return priority_list["div"]
+	end
+	function self.toLatex() 
+		return "frac{" .. self.left.toLatex() .. "}{" .. putParenLatex(self.right, self.priority()) .. "}"
+	end
 return self end
 
 function NumExpression(num)
@@ -622,6 +684,12 @@ function NumExpression(num)
 	end
 	function self.derive(sym) 
 		return NumExpression(0)
+	end
+	function self.priority() 
+		return priority_list["num"]
+	end
+	function self.toLatex() 
+		return self.num
 	end
 return self end
 
@@ -644,6 +712,12 @@ function SymExpression(sym)
 		if self.sym == sym then 
 			return NumExpression(1) 
 		else return NumExpression(0) end
+	end
+	function self.priority() 
+		return priority_list["sym"]
+	end
+	function self.toLatex() 
+		return self.sym
 	end
 return self end
 
@@ -709,6 +783,13 @@ function FunExpression(name, left)
 		end
 	end
 	
+	function self.priority() 
+		return priority_list["fun"]
+	end
+	function self.toLatex() 
+		return "\\" .. self.name .. "(" .. self.left.toLatex() .. ")"
+	end
+	
 return self end
 
 function ExpExpression(left, right)
@@ -716,7 +797,7 @@ function ExpExpression(left, right)
 	function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
 	
 	function self.toString() 
-		return "(" .. self.left.toString() .. " ^ " .. self.right.toString() .. ")"
+		return putParen(self.left, self.priority()) .. "^" .. putParen(self.right, self.priority())
 	end
 	function self.expand() 
 		if self.right.kind == "numexp" and math.floor(self.right.num) == self.right.num and self.right.num > 1 then
@@ -738,7 +819,11 @@ function ExpExpression(left, right)
 	function self.combined() 
 		local t1 = self.left.combined()
 		local t2 = self.right.combined()
-		return ExpExpression(t1, t2)
+		if isOne(t2) then
+			return t1
+		else
+			return ExpExpression(t1, t2)
+		end
 	end
 	function self.derive(sym) 
 		-- just support constant number exponents
@@ -762,6 +847,78 @@ function ExpExpression(left, right)
 		end
 	end
 	
+	function self.priority() 
+		return priority_list["exp"]
+	end
+	function self.toLatex() 
+		return putParenLatex(self.left, self.priority()) .. "^" .. putParenLatex(self.right, self.priority())
+	end
+return self end
+
+function MatrixExpression(rows)
+	local self = { kind = "matexp", rows = rows }
+	function self.toString()
+		local rowsString = {}
+		for _,row in ipairs(self.rows) do
+			local cells = {}
+			for _,cell in ipairs(row) do
+				table.insert(cells, cell.toString())
+			end
+			local cellsString = table.concat(cells, ",")
+			table.insert(rowsString, cellsString)
+		end
+		return "[" .. table.concat(rowsString, ";") .. "]"
+	end
+	
+	function self.expand()
+		local new_rows = {}
+		for _,row in ipairs(self.rows) do
+			local new_cells = {}
+			for _,cell in ipairs(row) do
+				table.insert(new_cells, cell.expand())
+			end
+			table.insert(new_rows, new_cells)
+		end
+		return MatrixExpression(new_rows)
+	end
+	function self.combined()
+		local new_rows = {}
+		for _,row in ipairs(self.rows) do
+			local new_cells = {}
+			for _,cell in ipairs(row) do
+				table.insert(new_cells, cell.combined())
+			end
+			table.insert(new_rows, new_cells)
+		end
+		return MatrixExpression(new_rows)
+	end
+	function self.derive(sym)
+		local new_rows = {}
+		for _,row in ipairs(self.rows) do
+			local new_cells = {}
+			for _,cell in ipairs(row) do
+				table.insert(new_cells, cell.derive(sym))
+			end
+			table.insert(new_rows, new_cells)
+		end
+		return MatrixExpression(new_rows)
+	end
+	function self.toLatex()
+		local s = "\\begin{pmatrix}\n"
+		for _,row in ipairs(self.rows) do
+			local cells = {}
+			for _,cell in ipairs(row) do
+				table.insert(cells, cell.toLatex())
+			end
+			s = s .. table.concat(cells, " & ") .. "\\\\ \n"
+		end
+		s = s .. "\\end{pmatrix}"
+		return s
+	end
+	
+	function self.priority() 
+		return priority_list["mat"]
+	end
 return self end
 
 -- closure-based object
@@ -777,7 +934,7 @@ local function AddToken() local self = { kind = "add" }
 		end
 		return AddExpression(left, t)
 	end
-	function self.priority() return 50 end
+	function self.priority() return priority_list["add"] end
 	
 return self end
 local function SubToken() local self = { kind = "sub" }
@@ -801,7 +958,7 @@ local function SubToken() local self = { kind = "sub" }
 			return AddExpression(left, PrefixSubExpression(t))
 		end
 	end
-	function self.priority() return 50 end
+	function self.priority() return priority_list["sub"] end
 	
 return self end
 local function MulToken() local self = { kind = "mul" }
@@ -812,7 +969,7 @@ local function MulToken() local self = { kind = "mul" }
 		end
 		return MulExpression(left, t)
 	end
-	function self.priority() return 60 end
+	function self.priority() return priority_list["mul"] end
 	
 return self end
 local function DivToken() local self = { kind = "div" }
@@ -823,12 +980,12 @@ local function DivToken() local self = { kind = "div" }
 		end
 		return DivExpression(left, t)
 	end
-	function self.priority() return 60 end
+	function self.priority() return priority_list["div"] end
 	
 return self end
 
 local function RParToken() local self = { kind = "rpar" }
-	function self.priority() return 10 end
+	function self.priority() return priority_list["rpar"] end
 	
 return self end
 local function LParToken() local self = { kind = "lpar" }
@@ -846,7 +1003,7 @@ local function LParToken() local self = { kind = "lpar" }
 		return exp
 	end
 	
-	function self.priority() return 100 end
+	function self.priority() return priority_list["lpar"] end
 	
 	function self.infix(left)
 		local exp = parse(20)
@@ -887,8 +1044,68 @@ local function ExpToken() local self = { kind = "exp" }
 		end
 		return ExpExpression(left, exp)
 	end
-	function self.priority() return 70 end
+	function self.priority() return priority_list["exp"] end
 	
+return self end
+
+-- right bracket
+local function LBraToken() local self = { kind = "lbra" }
+	function self.prefix()
+		local i, j = 1, 1
+		rows = {}
+		rows[1] = {}
+		while true do
+			local exp = parse(10)
+			if not exp then
+				return nil
+			end
+	
+			rows[i][j] = exp
+	
+			local t = nextToken()
+			if t.kind == "rbra" then
+				break
+			end
+			
+			if t.kind == "comma" then
+				j = j+1
+			end
+			
+			if t.kind == "semi" then
+				rows[#rows+1] = {}
+				i = i+1
+				j = 1
+			end
+			
+		end
+		local curlen
+		for _,row in ipairs(rows) do
+			if not curlen then
+				curlen = #row
+			end
+		
+			if #row ~= curlen then
+				table.insert(events, "matrix dimension incorrect")
+			end
+		end
+		
+		local exp = MatrixExpression(rows)
+		
+		return exp
+	end
+	
+return self end
+-- left bracket
+local function RBraToken() local self = { kind = "rbra" }
+	function self.priority() return priority_list["rbra"] end
+return self end
+-- comma
+local function CommaToken() local self = { kind = "comma" }
+	function self.priority() return priority_list["comma"] end
+return self end
+-- semi-colon
+local function SemiToken() local self = { kind = "semi" }
+	function self.priority() return priority_list["semi"] end
 return self end
 
 
@@ -937,6 +1154,14 @@ function parse(p)
 	return exp
 end
 
+function putParen(exp, p)
+	if exp.priority() < p then
+		return "(" .. exp.toString() .. ")"
+	else
+		return exp.toString()
+	end
+end
+
 function copysign(mag, sign)
 	if sign < 0 then
 		return -math.abs(mag)
@@ -950,7 +1175,15 @@ function isZero(exp)
 end
 
 function isOne(exp)
-	return exp.kind == "num" and exp.num == 1
+	return exp.kind == "numexp" and exp.num == 1
+end
+
+function putParenLatex(exp, p)
+	if exp.priority() < p then
+		return "(" .. exp.toLatex() .. ")"
+	else
+		return exp.toLatex()
+	end
 end
 
 
@@ -973,6 +1206,11 @@ function parseAll(str)
 		
 		elseif c == "(" then table.insert(tokens, LParToken()) i = i+1
 		elseif c == ")" then table.insert(tokens, RParToken()) i = i+1
+		
+		elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
+		elseif c == "]" then table.insert(tokens, RBraToken()) i = i+1
+		elseif c == "," then table.insert(tokens, CommaToken()) i = i+1
+		elseif c == ";" then table.insert(tokens, SemiToken()) i = i+1
 		
 		elseif string.match(c, "%d") then 
 			local parsed = string.match(string.sub(str, i), "%d+%.?%d*")
@@ -1019,7 +1257,8 @@ local function expand()
 		return
 	end
 	
-	-- @print_result
+	print("parsed: " .. exp.toString())
+	
 	local expanded = exp.expand()
 	print("expanded : " .. expanded.toString())
 	
@@ -1030,6 +1269,16 @@ local function expand()
 	local derived = combined.derive("x")
 	derived = derived.expand().combined()
 	print("derived " .. derived.toString())
+	
+	f = io.open("out.tex", "w")
+	f:write("\\documentclass[a4paper]{slides}\n")
+	f:write("\\begin{document}\n")
+	f:write("$" .. combined.toLatex() .. "$\n")
+	f:write("\\end{document}\n")
+	f:close()
+	vim.api.nvim_command("!pandoc out.tex -o out.pdf")
+	vim.api.nvim_command("!start out.pdf")
+	
 end
 
 

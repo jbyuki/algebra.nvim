@@ -18,10 +18,11 @@ return {
 local function expand()
 	@get_current_string
 	@parse_string
-	-- @print_result
+	@print_result
 	@expand_expression
 	@combine_symbols
 	@derive_test
+	@show_latex
 end
 
 @export_symbols+=
@@ -57,6 +58,9 @@ while i <= string.len(str) do
 	@skip_whitespace
 	@tokenize_op
 	@tokenize_par
+	@tokenize_bracket
+	@tokenize_comma
+	@tokenize_semicolon
 	@tokenize_num
 	@tokenize_symbol
 	@handle_error_tokenize
@@ -253,7 +257,15 @@ function self.infix(left)
 	end
 	return AddExpression(left, t)
 end
-function self.priority() return 50 end
+function self.priority() return priority_list["add"] end
+
+@script_variables+=
+local priority_list = {
+	@priority_list
+}
+
+@priority_list+=
+["add"] = 50,
 
 @declare_functions+=
 local PrefixSubExpression
@@ -295,7 +307,10 @@ function self.infix(left)
 		return AddExpression(left, PrefixSubExpression(t))
 	end
 end
-function self.priority() return 50 end
+function self.priority() return priority_list["sub"] end
+
+@priority_list+=
+["sub"] = 50,
 
 @declare_functions+=
 local MulExpression
@@ -314,7 +329,10 @@ function self.infix(left)
 	end
 	return MulExpression(left, t)
 end
-function self.priority() return 60 end
+function self.priority() return priority_list["mul"] end
+
+@priority_list+=
+["mul"] = 60,
 
 @declare_functions+=
 local DivExpression
@@ -333,7 +351,10 @@ function self.infix(left)
 	end
 	return DivExpression(left, t)
 end
-function self.priority() return 60 end
+function self.priority() return priority_list["div"] end
+
+@priority_list+=
+["div"] = 60,
 
 @lpar_token_methods+=
 function self.prefix()
@@ -353,10 +374,16 @@ if not rpar or rpar.kind ~= "rpar" then
 end
 
 @lpar_token_methods+=
-function self.priority() return 100 end
+function self.priority() return priority_list["lpar"] end
+
+@priority_list+=
+["lpar"] = 100,
 
 @rpar_token_methods+=
-function self.priority() return 10 end
+function self.priority() return priority_list["rpar"] end
+
+@priority_list+=
+["rpar"] = 10,
 
 @declare_functions+=
 local NumExpression
@@ -387,8 +414,7 @@ function self.prefix()
 end
 
 @print_result+=
-print(vim.inspect(exp))
-print("result: " .. vim.inspect(exp.eval()))
+print("parsed: " .. exp.toString())
 
 @add_exp_methods+=
 function self.eval() return self.left.eval() + self.right.eval() end
@@ -472,7 +498,10 @@ function self.infix(left)
 	end
 	return ExpExpression(left, exp)
 end
-function self.priority() return 70 end
+function self.priority() return priority_list["exp"] end
+
+@priority_list+=
+["exp"] = 70,
 
 @exp_exp_methods+=
 function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
@@ -570,29 +599,41 @@ end
 local expanded = exp.expand()
 print("expanded : " .. expanded.toString())
 
+@declare_functions+=
+local putParen
+
+@functions+=
+function putParen(exp, p)
+	if exp.priority() < p then
+		return "(" .. exp.toString() .. ")"
+	else
+		return exp.toString()
+	end
+end
+
 @add_exp_methods+=
 function self.toString() 
-	return "(" .. self.left.toString() .. " + " .. self.right.toString() .. ")"
+	return putParen(self.left, self.priority()) .. "+" .. putParen(self.right, self.priority())
 end
 @sub_exp_methods+=
 function self.toString() 
-	return "(" .. self.left.toString() .. " - " .. self.right.toString() .. ")"
+	return putParen(self.left, self.priority()) .. "-" .. putParen(self.right, self.priority())
 end
 @presub_exp_methods+=
 function self.toString() 
-	return "(-" .. self.left.toString() .. ")"
+	return "-" .. putParen(self.left, self.priority()) .. ""
 end
 @mul_exp_methods+=
 function self.toString() 
-	return "(" .. self.left.toString() .. " * " .. self.right.toString() .. ")"
+	return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
 end
 @div_exp_methods+=
 function self.toString() 
-	return "(" .. self.left.toString() .. " / " .. self.right.toString() .. ")"
+	return putParen(self.left, self.priority()) .. "/" .. putParen(self.right, self.priority())
 end
 @exp_exp_methods+=
 function self.toString() 
-	return "(" .. self.left.toString() .. " ^ " .. self.right.toString() .. ")"
+	return putParen(self.left, self.priority()) .. "^" .. putParen(self.right, self.priority())
 end
 @sym_exp_methods+=
 function self.toString() 
@@ -936,9 +977,9 @@ function self.combined()
 	@remove_if_multiply_by_minus_one
 	@combine_terms_upper_mul
 
-	print("mul collectAll " .. vim.inspect(collectAll))
-	print("mul rest " .. vim.inspect(rest))
-	print("mul coeff " .. vim.inspect(coeff))
+	-- print("mul collectAll " .. vim.inspect(collectAll))
+	-- print("mul rest " .. vim.inspect(rest))
+	-- print("mul coeff " .. vim.inspect(coeff))
 
 	local exp_mul
 	@combine_unknown_power
@@ -1037,7 +1078,11 @@ end
 function self.combined() 
 	local t1 = self.left.combined()
 	local t2 = self.right.combined()
-	return ExpExpression(t1, t2)
+	if isOne(t2) then
+		return t1
+	else
+		return ExpExpression(t1, t2)
+	end
 end
 @sym_exp_methods+=
 function self.combined() 
@@ -1174,7 +1219,7 @@ local isOne
 
 @functions+=
 function isOne(exp)
-	return exp.kind == "num" and exp.num == 1
+	return exp.kind == "numexp" and exp.num == 1
 end
 
 @composition_rule+=
@@ -1230,3 +1275,277 @@ elseif self.name == "sqrt" then
 local derived = combined.derive("x")
 derived = derived.expand().combined()
 print("derived " .. derived.toString())
+
+@add_exp_methods+=
+function self.priority() 
+	return priority_list["add"]
+end
+@sub_exp_methods+=
+function self.priority() 
+	return priority_list["sub"]
+end
+@presub_exp_methods+=
+function self.priority() 
+	return priority_list["presub"]
+end
+@priority_list+=
+["presub"] = 90,
+@mul_exp_methods+=
+function self.priority() 
+	return priority_list["mul"]
+end
+@div_exp_methods+=
+function self.priority() 
+	return priority_list["div"]
+end
+@exp_exp_methods+=
+function self.priority() 
+	return priority_list["exp"]
+end
+@priority_list+=
+["exp"] = 90,
+@sym_exp_methods+=
+function self.priority() 
+	return priority_list["sym"]
+end
+@priority_list+=
+["sym"] = 110,
+@num_exp_methods+=
+function self.priority() 
+	return priority_list["num"]
+end
+@priority_list+=
+["num"] = 110,
+@fun_exp_methods+=
+function self.priority() 
+	return priority_list["fun"]
+end
+@priority_list+=
+["fun"] = 100,
+
+@declare_functions+=
+local putParenLatex
+
+@functions+=
+function putParenLatex(exp, p)
+	if exp.priority() < p then
+		return "(" .. exp.toLatex() .. ")"
+	else
+		return exp.toLatex()
+	end
+end
+
+@add_exp_methods+=
+function self.toLatex() 
+	return putParenLatex(self.left, self.priority()) .. "+" .. putParenLatex(self.right, self.priority())
+end
+@sub_exp_methods+=
+function self.toLatex() 
+	return putParenLatex(self.left, self.priority()) .. "-" .. putParenLatex(self.right, self.priority())
+end
+@presub_exp_methods+=
+function self.toLatex() 
+	return "-" .. putParenLatex(self.left, self.priority()) .. ""
+end
+@mul_exp_methods+=
+function self.toLatex() 
+	return putParenLatex(self.left, self.priority()) .. " \\cdot " .. putParenLatex(self.right, self.priority())
+end
+@div_exp_methods+=
+function self.toLatex() 
+	return "frac{" .. self.left.toLatex() .. "}{" .. putParenLatex(self.right, self.priority()) .. "}"
+end
+@exp_exp_methods+=
+function self.toLatex() 
+	return putParenLatex(self.left, self.priority()) .. "^" .. putParenLatex(self.right, self.priority())
+end
+@sym_exp_methods+=
+function self.toLatex() 
+	return self.sym
+end
+@num_exp_methods+=
+function self.toLatex() 
+	return self.num
+end
+@fun_exp_methods+=
+function self.toLatex() 
+	return "\\" .. self.name .. "(" .. self.left.toLatex() .. ")"
+end
+
+@show_latex+=
+f = io.open("out.tex", "w")
+f:write("\\documentclass[a4paper]{slides}\n")
+f:write("\\begin{document}\n")
+f:write("$" .. combined.toLatex() .. "$\n")
+f:write("\\end{document}\n")
+f:close()
+vim.api.nvim_command("!pandoc out.tex -o out.pdf")
+vim.api.nvim_command("!start out.pdf")
+
+@tokenize_bracket+=
+elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
+elseif c == "]" then table.insert(tokens, RBraToken()) i = i+1
+@tokenize_comma+=
+elseif c == "," then table.insert(tokens, CommaToken()) i = i+1
+@tokenize_semicolon+=
+elseif c == ";" then table.insert(tokens, SemiToken()) i = i+1
+
+@tokens+=
+-- right bracket
+local function LBraToken() local self = { kind = "lbra" }
+	@lbra_token_methods
+return self end
+-- left bracket
+local function RBraToken() local self = { kind = "rbra" }
+	@rbra_token_methods
+return self end
+-- comma
+local function CommaToken() local self = { kind = "comma" }
+	@comma_token_methods
+return self end
+-- semi-colon
+local function SemiToken() local self = { kind = "semi" }
+	@semi_token_methods
+return self end
+
+@lbra_token_methods+=
+function self.prefix()
+	local i, j = 1, 1
+	rows = {}
+	rows[1] = {}
+	while true do
+		local exp = parse(10)
+		if not exp then
+			return nil
+		end
+
+		rows[i][j] = exp
+
+		local t = nextToken()
+		@if_rbra_quit
+		@if_comma_next_col
+		@if_semi_next_row
+	end
+	@verify_all_lines_have_same_length
+	@make_matrix_expression
+	return exp
+end
+
+@rbra_token_methods+=
+function self.priority() return priority_list["rbra"] end
+@priority_list+=
+["rbra"] = 5,
+@comma_token_methods+=
+function self.priority() return priority_list["comma"] end
+@priority_list+=
+["comma"] = 5,
+@semi_token_methods+=
+function self.priority() return priority_list["semi"] end
+@priority_list+=
+["semi"] = 5,
+
+@if_rbra_quit+=
+if t.kind == "rbra" then
+	break
+end
+
+@if_comma_next_col+=
+if t.kind == "comma" then
+	j = j+1
+end
+
+@if_semi_next_row+=
+if t.kind == "semi" then
+	rows[#rows+1] = {}
+	i = i+1
+	j = 1
+end
+
+@verify_all_lines_have_same_length+=
+local curlen
+for _,row in ipairs(rows) do
+	if not curlen then
+		curlen = #row
+	end
+
+	if #row ~= curlen then
+		table.insert(events, "matrix dimension incorrect")
+	end
+end
+
+@expressions+=
+function MatrixExpression(rows)
+	local self = { kind = "matexp", rows = rows }
+	@exp_mat_methods
+return self end
+
+@make_matrix_expression+=
+local exp = MatrixExpression(rows)
+
+@exp_mat_methods+=
+function self.toString()
+	local rowsString = {}
+	for _,row in ipairs(self.rows) do
+		local cells = {}
+		for _,cell in ipairs(row) do
+			table.insert(cells, cell.toString())
+		end
+		local cellsString = table.concat(cells, ",")
+		table.insert(rowsString, cellsString)
+	end
+	return "[" .. table.concat(rowsString, ";") .. "]"
+end
+
+@exp_mat_methods+=
+function self.expand()
+	local new_rows = {}
+	for _,row in ipairs(self.rows) do
+		local new_cells = {}
+		for _,cell in ipairs(row) do
+			table.insert(new_cells, cell.expand())
+		end
+		table.insert(new_rows, new_cells)
+	end
+	return MatrixExpression(new_rows)
+end
+function self.combined()
+	local new_rows = {}
+	for _,row in ipairs(self.rows) do
+		local new_cells = {}
+		for _,cell in ipairs(row) do
+			table.insert(new_cells, cell.combined())
+		end
+		table.insert(new_rows, new_cells)
+	end
+	return MatrixExpression(new_rows)
+end
+function self.derive(sym)
+	local new_rows = {}
+	for _,row in ipairs(self.rows) do
+		local new_cells = {}
+		for _,cell in ipairs(row) do
+			table.insert(new_cells, cell.derive(sym))
+		end
+		table.insert(new_rows, new_cells)
+	end
+	return MatrixExpression(new_rows)
+end
+function self.toLatex()
+	local s = "\\begin{pmatrix}\n"
+	for _,row in ipairs(self.rows) do
+		local cells = {}
+		for _,cell in ipairs(row) do
+			table.insert(cells, cell.toLatex())
+		end
+		s = s .. table.concat(cells, " & ") .. "\\\\ \n"
+	end
+	s = s .. "\\end{pmatrix}"
+	return s
+end
+
+@exp_mat_methods+=
+function self.priority() 
+	return priority_list["mat"]
+end
+@priority_list+=
+["mat"] = 110,
