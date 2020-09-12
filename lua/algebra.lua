@@ -28,6 +28,8 @@ local FunExpression
 
 local ExpExpression
 
+local copysign
+
 local countMap
 
 function countMap(a)
@@ -94,6 +96,16 @@ function AddExpression(left, right)
 						collectPow[powpair] = 0
 					end
 					collectPow[powpair] = collectPow[powpair] - 1
+				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					if not collect[combined.left.sym] then
+						collect[combined.left.sym] = 0
+					end
+					collect[combined.left.sym] = collect[combined.left.sym] - combined.right.num
+				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
+					if not collect[combined.right.sym] then
+						collect[combined.right.sym] = 0
+					end
+					collect[combined.right.sym] = collect[combined.right.sym] - combined.left.num
 				elseif combined.kind == "numexp" then
 					constant = constant - combined.num
 				else
@@ -114,6 +126,16 @@ function AddExpression(left, right)
 					collectPow[powpair] = collectPow[powpair] + 1
 				elseif combined.kind == "numexp" then
 					constant = constant + combined.num
+				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					if not collect[combined.left.sym] then
+						collect[combined.left.sym] = 0
+					end
+					collect[combined.left.sym] = collect[combined.left.sym] + combined.right.num
+				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
+					if not collect[combined.right.sym] then
+						collect[combined.right.sym] = 0
+					end
+					collect[combined.right.sym] = collect[combined.right.sym] + combined.left.num
 				else
 					table.insert(rest, combined)
 				end
@@ -211,7 +233,7 @@ function AddExpression(left, right)
 			if not exp_add then
 				exp_add = term
 			else
-				exp_add = AddExpression(exp_mul, term)
+				exp_add = AddExpression(exp_add, term)
 			end
 		end
 		
@@ -235,6 +257,9 @@ function PrefixSubExpression(left)
 	end
 	function self.combined() 
 		local t1 = self.left.combined()
+		if t1.kind == "presubexp" then
+			return t1.left.combined()
+		end
 		return PrefixSubExpression(t1)
 	end
 return self end
@@ -312,47 +337,60 @@ function MulExpression(left, right)
 			coeff = collectUpperMul(root.left, coeff, collect, rest)
 			coeff = collectUpperMul(root.right, coeff, collect, rest)
 		else
-			if root.kind == "presubexp" then
-				root = root.left
-				if root.kind == "symexp" then
-					if not collect[root.sym] then
-						collect[root.sym] = 0
+			local combined = root.combined()
+			if combined.kind == "presubexp" then
+				combined = combined.left
+				if combined.kind == "symexp" then
+					if not collect[combined.sym] then
+						collect[combined.sym] = 0
 					end
-					collect[root.sym] = -(collect[root.sym] + 1)
-				elseif root.kind == "expexp" and root.left.kind == "symexp" and root.right.kind == "numexp" then
-					if not collect[root.left.sym] then
-						collect[root.left.sym] = 0
+					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*-1)
+				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					if not collect[combined.left.sym] then
+						collect[combined.left.sym] = 0
 					end
-					collect[root.left.sym] = -(collect[root.left.sym] + root.right.num)
-				elseif root.kind == "numexp" then
-					coeff = coeff * -root.num
+					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*-1)
+				elseif combined.kind == "numexp" then
+					coeff = coeff * -combined.num
+				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					if not collect[combined.left.sym] then
+						collect[combined.left.sym] = 0
+					end
+					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) * combined.right.num, collect[combined.left.sym]*-1*combined.right.num)
+				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
+					if not collect[combined.right.sym] then
+						collect[combined.right.sym] = 0
+					end
+					collect[combined.right.sym] = copysign(math.abs(collect[combined.right.sym]) * combined.left.num, collect[combined.right.sym]*-1*combined.left.num)
 				else
-					table.insert(rest, PrefixSubExpression(root.combined()))
+					table.insert(rest, PrefixSubExpression(combined))
 				end
 				
 			else
-				if root.kind == "symexp" then
-					if not collect[root.sym] then
-						collect[root.sym] = 0
+				if combined.kind == "symexp" then
+					if not collect[combined.sym] then
+						collect[combined.sym] = 0
 					end
-					if collect[root.sym] < 0 then
-						collect[root.sym] = collect[root.sym] - 1
-					else 
-						collect[root.sym] = collect[root.sym] + 1
+					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym])
+				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					if not collect[combined.left.sym] then
+						collect[combined.left.sym] = 0
 					end
-				elseif root.kind == "expexp" and root.left.kind == "symexp" and root.right.kind == "numexp" then
-					if not collect[root.left.sym] then
-						collect[root.left.sym] = 0
+					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym])
+				elseif combined.kind == "numexp" then
+					coeff = coeff * combined.num
+				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+					if not collect[combined.left.sym] then
+						collect[combined.left.sym] = 0
 					end
-					if collect[root.left.sym] < 0 then
-						collect[root.left.sym] = collect[root.left.sym] - root.right.num
-					else
-						collect[root.left.sym] = collect[root.left.sym] + root.right.num
+					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) * combined.right.num, collect[combined.left.sym]*combined.right.num)
+				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
+					if not collect[combined.right.sym] then
+						collect[combined.right.sym] = 0
 					end
-				elseif root.kind == "numexp" then
-					coeff = coeff * root.num
+					collect[combined.right.sym] = copysign(math.abs(collect[combined.right.sym]) * combined.left.num, collect[combined.right.sym]*combined.left.num)
 				else
-					table.insert(rest, root.combined())
+					table.insert(rest, combined)
 				end
 				
 			end
@@ -369,10 +407,10 @@ function MulExpression(left, right)
 		end
 		
 		if self.left.kind == "numexp" and self.left.num == -1 then
-			return PrefixSubExpression(self.right.combined())
+			return (PrefixSubExpression(self.right.combined())).combined()
 		end
 		if self.right.kind == "numexp" and self.right.num == -1 then
-			return PrefixSubExpression(self.left.combined())
+			return (PrefixSubExpression(self.left.combined())).combined()
 		end
 		
 		local collectAll = {}
@@ -381,16 +419,13 @@ function MulExpression(left, right)
 		coeff = collectUpperMul(self.left, coeff, collectAll, rest)
 		coeff = collectUpperMul(self.right, coeff, collectAll, rest)
 		
+		
+	
 		-- print("mul collectAll " .. vim.inspect(collectAll))
 		-- print("mul rest " .. vim.inspect(rest))
 		-- print("mul coeff " .. vim.inspect(coeff))
-		
 	
 		local exp_mul
-		if coeff ~= 1 or (countMap(collectAll) == 0 and #rest == 0) then
-			exp_mul = NumExpression(coeff)
-		end
-		
 		for term, power in pairs(collectAll) do
 			if power ~= 0 then
 				local exp_pow = SymExpression(term)
@@ -405,7 +440,7 @@ function MulExpression(left, right)
 				if not exp_mul then
 					exp_mul = exp_pow
 				else
-					exp_mul = MulExpression(exp_mul, exp_pow)
+					exp_mul = MulExpression(exp_mul, exp_pow.combined())
 				end
 			end
 		end
@@ -419,8 +454,19 @@ function MulExpression(left, right)
 			end
 		end
 		
+		if math.abs(coeff) ~= 1 or (countMap(collectAll) == 0 and #rest == 0) then
+			if not exp_mul then
+				exp_mul = NumExpression(coeff)
+			else
+				exp_mul = MulExpression(NumExpression(coeff), exp_mul)
+			end
+		elseif coeff == -1 then
+			exp_mul = PrefixSubExpression(exp_mul)
+		end
+		
 	
 		exp_mul = exp_mul or NumExpression(0)
+		
 		return exp_mul
 	end
 	
@@ -693,6 +739,14 @@ function parse(p)
 		exp = t.infix(exp)
 	end
 	return exp
+end
+
+function copysign(mag, sign)
+	if sign < 0 then
+		return -math.abs(mag)
+	else
+		return math.abs(mag)
+	end
 end
 
 
