@@ -628,6 +628,7 @@ return exp.expand()
 
 @combine_symbols+=
 local combined = expanded.combined()
+table.insert(events, combined.toString())
 print("simplifed " .. combined.toString())
 
 @add_exp_methods-=

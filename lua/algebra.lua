@@ -878,6 +878,7 @@ local function expand()
 	print("expanded : " .. expanded.toString())
 	
 	local combined = expanded.combined()
+	table.insert(events, combined.toString())
 	print("simplifed " .. combined.toString())
 	
 end
