@@ -85,27 +85,54 @@ function AddExpression(left, right)
 			local combined = root.combined()
 			if combined.kind == "presubexp" then
 				combined = combined.left
+				local factor = -1
 				if combined.kind == "symexp" then
 					if not collect[combined.sym] then
 						collect[combined.sym] = 0
 					end
-					collect[combined.sym] = collect[combined.sym] - 1
+					collect[combined.sym] = collect[combined.sym] + factor*1
+					
 				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
 					local powpair = {combined.left.sym, combined.right.num}
 					if not collectPow[powpair] then
 						collectPow[powpair] = 0
 					end
-					collectPow[powpair] = collectPow[powpair] - 1
+					collectPow[powpair] = collectPow[powpair] + factor*1
+					
 				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-					if not collect[combined.left.sym] then
-						collect[combined.left.sym] = 0
+					local sym, num = combined.left.sym, combined.right.num
+					if not collect[sym] then
+						collect[sym] = 0
 					end
-					collect[combined.left.sym] = collect[combined.left.sym] - combined.right.num
+					collect[sym] = collect[sym] + factor*num
+					
 				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-					if not collect[combined.right.sym] then
-						collect[combined.right.sym] = 0
+					local sym, num = combined.right.sym, combined.left.num
+					if not collect[sym] then
+						collect[sym] = 0
 					end
-					collect[combined.right.sym] = collect[combined.right.sym] - combined.left.num
+					collect[sym] = collect[sym] + factor*num
+					
+				elseif combined.kind == "mulexp" and combined.left.kind == "expexp" and combined.right.kind == "numexp" then
+					if combined.left.left.kind == "symexp" and combined.left.right.kind == "numexp" then
+						local sym, pow, num = combined.left.left.sym, combined.left.right.num, combined.right.num
+						local powpair = {sym, pow}
+						if not collectPow[powpair] then
+							collectPow[powpair] = 0
+						end
+						collectPow[powpair] = collectPow[powpair] + factor*num
+						
+					end
+				elseif combined.kind == "mulexp" and combined.right.kind == "expexp" and combined.left.kind == "numexp" then
+					if combined.right.left.kind == "symexp" and combined.right.right.kind == "numexp" then
+						local sym, pow, num = combined.right.left.sym, combined.right.right.num, combined.left.num
+						local powpair = {sym, pow}
+						if not collectPow[powpair] then
+							collectPow[powpair] = 0
+						end
+						collectPow[powpair] = collectPow[powpair] + factor*num
+						
+					end
 				elseif combined.kind == "numexp" then
 					constant = constant - combined.num
 				else
@@ -113,29 +140,56 @@ function AddExpression(left, right)
 				end
 				
 			else
+				local factor = 1
 				if combined.kind == "symexp" then
 					if not collect[combined.sym] then
 						collect[combined.sym] = 0
 					end
-					collect[combined.sym] = collect[combined.sym] + 1
+					collect[combined.sym] = collect[combined.sym] + factor*1
+					
 				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
 					local powpair = {combined.left.sym, combined.right.num}
 					if not collectPow[powpair] then
 						collectPow[powpair] = 0
 					end
-					collectPow[powpair] = collectPow[powpair] + 1
+					collectPow[powpair] = collectPow[powpair] + factor*1
+					
 				elseif combined.kind == "numexp" then
 					constant = constant + combined.num
 				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-					if not collect[combined.left.sym] then
-						collect[combined.left.sym] = 0
+					local sym, num = combined.left.sym, combined.right.num
+					if not collect[sym] then
+						collect[sym] = 0
 					end
-					collect[combined.left.sym] = collect[combined.left.sym] + combined.right.num
+					collect[sym] = collect[sym] + factor*num
+					
 				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-					if not collect[combined.right.sym] then
-						collect[combined.right.sym] = 0
+					local sym, num = combined.right.sym, combined.left.num
+					if not collect[sym] then
+						collect[sym] = 0
 					end
-					collect[combined.right.sym] = collect[combined.right.sym] + combined.left.num
+					collect[sym] = collect[sym] + factor*num
+					
+				elseif combined.kind == "mulexp" and combined.left.kind == "expexp" and combined.right.kind == "numexp" then
+					if combined.left.left.kind == "symexp" and combined.left.right.kind == "numexp" then
+						local sym, pow, num = combined.left.left.sym, combined.left.right.num, combined.right.num
+						local powpair = {sym, pow}
+						if not collectPow[powpair] then
+							collectPow[powpair] = 0
+						end
+						collectPow[powpair] = collectPow[powpair] + factor*num
+						
+					end
+				elseif combined.kind == "mulexp" and combined.right.kind == "expexp" and combined.left.kind == "numexp" then
+					if combined.right.left.kind == "symexp" and combined.right.right.kind == "numexp" then
+						local sym, pow, num = combined.right.left.sym, combined.right.right.num, combined.left.num
+						local powpair = {sym, pow}
+						if not collectPow[powpair] then
+							collectPow[powpair] = 0
+						end
+						collectPow[powpair] = collectPow[powpair] + factor*num
+						
+					end
 				else
 					table.insert(rest, combined)
 				end
@@ -340,55 +394,59 @@ function MulExpression(left, right)
 			local combined = root.combined()
 			if combined.kind == "presubexp" then
 				combined = combined.left
+				local factor = -1
 				if combined.kind == "symexp" then
 					if not collect[combined.sym] then
 						collect[combined.sym] = 0
 					end
-					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*-1)
+					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*factor)
+					
 				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
 					if not collect[combined.left.sym] then
 						collect[combined.left.sym] = 0
 					end
-					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*-1)
+					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*factor)
+					
+					if not collect[sym] then
+						collect[sym] = 0
+					end
+					collect[sym] = copysign(math.abs(collect[sym]) * num, collect[sym]*num*factor)
+					
 				elseif combined.kind == "numexp" then
 					coeff = coeff * -combined.num
 				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-					if not collect[combined.left.sym] then
-						collect[combined.left.sym] = 0
-					end
-					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) * combined.right.num, collect[combined.left.sym]*-1*combined.right.num)
+					local sym, num = combined.left.sym, combined.right.num
 				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-					if not collect[combined.right.sym] then
-						collect[combined.right.sym] = 0
-					end
-					collect[combined.right.sym] = copysign(math.abs(collect[combined.right.sym]) * combined.left.num, collect[combined.right.sym]*-1*combined.left.num)
+					local sym, num = combined.right.sym, combined.left.num
 				else
 					table.insert(rest, PrefixSubExpression(combined))
 				end
 				
 			else
+				local factor = 1
 				if combined.kind == "symexp" then
 					if not collect[combined.sym] then
 						collect[combined.sym] = 0
 					end
-					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym])
+					collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*factor)
+					
 				elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
 					if not collect[combined.left.sym] then
 						collect[combined.left.sym] = 0
 					end
-					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym])
+					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*factor)
+					
+					if not collect[sym] then
+						collect[sym] = 0
+					end
+					collect[sym] = copysign(math.abs(collect[sym]) * num, collect[sym]*num*factor)
+					
 				elseif combined.kind == "numexp" then
 					coeff = coeff * combined.num
 				elseif combined.kind == "mulexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-					if not collect[combined.left.sym] then
-						collect[combined.left.sym] = 0
-					end
-					collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) * combined.right.num, collect[combined.left.sym]*combined.right.num)
+					local sym, num = combined.left.sym, combined.right.num
 				elseif combined.kind == "mulexp" and combined.left.kind == "numexp" and combined.right.kind == "symexp" then
-					if not collect[combined.right.sym] then
-						collect[combined.right.sym] = 0
-					end
-					collect[combined.right.sym] = copysign(math.abs(collect[combined.right.sym]) * combined.left.num, collect[combined.right.sym]*combined.left.num)
+					local sym, num = combined.right.sym, combined.left.num
 				else
 					table.insert(rest, combined)
 				end
