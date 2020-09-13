@@ -22,6 +22,7 @@ local function expand()
 	@expand_expression
 	@combine_symbols
 	@derive_test
+	@test_matrix
 	@show_latex
 end
 
@@ -625,7 +626,11 @@ function self.toString()
 end
 @mul_exp_methods+=
 function self.toString() 
-	return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
+	if self.left.kind == "numexp" and self.right.kind ~= "numexp" then
+		return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
+	else 
+		return putParen(self.left, self.priority()) .. putParen(self.right, self.priority())
+	end
 end
 @div_exp_methods+=
 function self.toString() 
@@ -1098,41 +1103,16 @@ function self.combined()
 	return FunExpression(self.name, t1)
 end
 
-@add_exp_methods+=
-function self.expand() 
-	return self
-end
-@sub_exp_methods+=
-function self.expand() 
-	return self
-end
-@presub_exp_methods+=
-function self.expand() 
-	return self
-end
-@div_exp_methods+=
-function self.expand() 
-	return self
-end
-@sym_exp_methods+=
-function self.expand() 
-	return self
-end
-@num_exp_methods+=
-function self.expand() 
-	return self
-end
-@fun_exp_methods+=
-function self.expand() 
-	return self
-end
-
 @declare_functions+=
 local isZero
 
 @functions+=
 function isZero(exp)
-	return exp.kind == "numexp" and exp.num == 0
+	if exp.kind == "numexp" and exp.num == 0 then
+		return true
+	@matrix_zero
+	end
+	return true
 end
 
 @add_exp_methods+=
@@ -1349,7 +1329,11 @@ function self.toLatex()
 end
 @mul_exp_methods+=
 function self.toLatex() 
-	return putParenLatex(self.left, self.priority()) .. " \\cdot " .. putParenLatex(self.right, self.priority())
+	if self.left.kind == "numexp" and self.right.kind ~= "numexp" then
+		return putParenLatex(self.left, self.priority()) .. putParenLatex(self.right, self.priority())
+	else
+		return putParenLatex(self.left, self.priority()) .. " \\cdot " .. putParenLatex(self.right, self.priority())
+	end
 end
 @div_exp_methods+=
 function self.toLatex() 
@@ -1474,13 +1458,13 @@ for _,row in ipairs(rows) do
 end
 
 @expressions+=
-function MatrixExpression(rows)
-	local self = { kind = "matexp", rows = rows }
+function MatrixExpression(rows, m, n)
+	local self = { kind = "matexp", rows = rows, m = m, n = n }
 	@exp_mat_methods
 return self end
 
 @make_matrix_expression+=
-local exp = MatrixExpression(rows)
+local exp = MatrixExpression(rows, #rows, curlen)
 
 @exp_mat_methods+=
 function self.toString()
@@ -1506,7 +1490,7 @@ function self.expand()
 		end
 		table.insert(new_rows, new_cells)
 	end
-	return MatrixExpression(new_rows)
+	return MatrixExpression(new_rows, self.m, self.n)
 end
 function self.combined()
 	local new_rows = {}
@@ -1517,7 +1501,7 @@ function self.combined()
 		end
 		table.insert(new_rows, new_cells)
 	end
-	return MatrixExpression(new_rows)
+	return MatrixExpression(new_rows, self.m, self.n)
 end
 function self.derive(sym)
 	local new_rows = {}
@@ -1528,7 +1512,7 @@ function self.derive(sym)
 		end
 		table.insert(new_rows, new_cells)
 	end
-	return MatrixExpression(new_rows)
+	return MatrixExpression(new_rows, self.m, self.n)
 end
 function self.toLatex()
 	local s = "\\begin{pmatrix}\n"
@@ -1549,3 +1533,129 @@ function self.priority()
 end
 @priority_list+=
 ["mat"] = 110,
+
+@add_exp_methods+=
+function self.combinedMatrix()
+	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+	if m1.kind == "matexp" and m2.kind == "matexp" then
+		@check_that_matrices_are_same_dimensions
+		@add_matrices_together
+		return MatrixExpression(rows)
+	else
+		return self
+	end
+end
+
+@check_that_matrices_are_same_dimensions+=
+if m1.m ~= m2.m or m1.n ~= m2.n then
+	table.insert(events, "add matrix dimensions mismatch")
+	return
+end
+
+@add_matrices_together+=
+rows = {}
+for i=1,m1.m do
+	result_row = {}
+	for j=1,m1.n do
+		table.insert(result_row, AddExpression(m1.rows[i][j], m2.rows[i][j]))
+	end
+	table.insert(rows, result_row)
+end
+
+@test_matrix+=
+local mat = combined.combinedMatrix().expand().combined()
+print("Mat: " .. mat.toString())
+combined = mat
+
+@sub_exp_methods+=
+function self.combinedMatrix()
+	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+	if m1.kind == "matexp" and m2.kind == "matexp" then
+		@check_that_matrices_are_same_dimensions
+		@sub_matrices_together
+		return MatrixExpression(rows)
+	else
+		return self
+	end
+end
+
+@sub_matrices_together+=
+rows = {}
+for i=1,m1.m do
+	result_row = {}
+	for j=1,m1.n do
+		table.insert(result_row, SubExpression(m1.rows[i][j], m2.rows[i][j]))
+	end
+	table.insert(rows, result_row)
+end
+
+@presub_exp_methods+=
+function self.combinedMatrix()
+	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+	if m1.kind == "matexp" then
+		@presub_matrix
+		return MatrixExpression(rows)
+	else
+		return self
+	end
+end
+
+@presub_matrix+=
+rows = {}
+for i=1,m1.m do
+	result_row = {}
+	for j=1,m1.n do
+		table.insert(result_row, PrefixSubExpression(m1.rows[i][j]))
+	end
+	table.insert(rows, result_row)
+end
+
+@mul_exp_methods+=
+function self.combinedMatrix()
+	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+	@check_that_matrices_are_correct_for_multiplication
+	@multiply_matrices_together
+	return MatrixExpression(rows)
+end
+
+@check_that_matrices_are_correct_for_multiplication+=
+if m1.m ~= m2.n or m1.n ~= m2.m then
+	table.insert(events, "Matrix mul dimensions mismatch")
+	return
+end
+
+@multiply_matrices_together+=
+rows = {}
+for i=1,m2.n do
+	for j=1,m1.m do
+		local cell
+		@compute_matrix_cell
+		@put_result_in_cell
+	end
+end
+
+@compute_matrix_cell+=
+for k=1,m1.n do
+	local exp = MulExpression(m1.rows[j][k], m2.rows[k][i])
+	cell = (not cell and exp) or AddExpression(cell, exp)
+end
+
+@put_result_in_cell+=
+if not rows[j] then
+	rows[j] = {}
+end
+rows[j][i] = cell
+
+@matrix_zero+=
+elseif exp.kind == "matexp" then
+	for i=1,exp.m do
+		for j=1,exp.n do
+			if not isZero(exp.rows[i][j]) then
+				return false
+			end
+		end
+	end
+	return true

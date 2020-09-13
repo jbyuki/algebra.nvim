@@ -80,6 +80,7 @@ local priority_list = {
 	["semi"] = 5,
 	
 	["mat"] = 110,
+	
 }
 
 local funs = {
@@ -332,9 +333,6 @@ function AddExpression(left, right)
 		return exp_add
 	end
 	
-	function self.expand() 
-		return self
-	end
 	function self.derive(sym) 
 		local t1 = self.left.derive(sym)
 		local t2 = self.right.derive(sym)
@@ -350,6 +348,30 @@ function AddExpression(left, right)
 	function self.toLatex() 
 		return putParenLatex(self.left, self.priority()) .. "+" .. putParenLatex(self.right, self.priority())
 	end
+	function self.combinedMatrix()
+		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+		local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+		if m1.kind == "matexp" and m2.kind == "matexp" then
+			if m1.m ~= m2.m or m1.n ~= m2.n then
+				table.insert(events, "add matrix dimensions mismatch")
+				return
+			end
+			
+			rows = {}
+			for i=1,m1.m do
+				result_row = {}
+				for j=1,m1.n do
+					table.insert(result_row, AddExpression(m1.rows[i][j], m2.rows[i][j]))
+				end
+				table.insert(rows, result_row)
+			end
+			
+			return MatrixExpression(rows)
+		else
+			return self
+		end
+	end
+	
 return self end
 
 function PrefixSubExpression(left) 
@@ -370,9 +392,6 @@ function PrefixSubExpression(left)
 		end
 		return PrefixSubExpression(t1)
 	end
-	function self.expand() 
-		return self
-	end
 	function self.derive(sym) 
 		local t1 = self.left.derive(sym)
 		if isZero(t1) then return t1 end
@@ -384,6 +403,24 @@ function PrefixSubExpression(left)
 	function self.toLatex() 
 		return "-" .. putParenLatex(self.left, self.priority()) .. ""
 	end
+	function self.combinedMatrix()
+		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+		if m1.kind == "matexp" then
+			rows = {}
+			for i=1,m1.m do
+				result_row = {}
+				for j=1,m1.n do
+					table.insert(result_row, PrefixSubExpression(m1.rows[i][j]))
+				end
+				table.insert(rows, result_row)
+			end
+			
+			return MatrixExpression(rows)
+		else
+			return self
+		end
+	end
+	
 return self end
 
 function SubExpression(left, right)
@@ -402,9 +439,6 @@ function SubExpression(left, right)
 		local t2 = self.right.combined()
 		return SubExpression(t1, t2)
 	end
-	function self.expand() 
-		return self
-	end
 	function self.derive(sym) 
 		local t1 = self.left.derive(sym)
 		local t2 = self.right.derive(sym)
@@ -420,6 +454,30 @@ function SubExpression(left, right)
 	function self.toLatex() 
 		return putParenLatex(self.left, self.priority()) .. "-" .. putParenLatex(self.right, self.priority())
 	end
+	function self.combinedMatrix()
+		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+		local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+		if m1.kind == "matexp" and m2.kind == "matexp" then
+			if m1.m ~= m2.m or m1.n ~= m2.n then
+				table.insert(events, "add matrix dimensions mismatch")
+				return
+			end
+			
+			rows = {}
+			for i=1,m1.m do
+				result_row = {}
+				for j=1,m1.n do
+					table.insert(result_row, SubExpression(m1.rows[i][j], m2.rows[i][j]))
+				end
+				table.insert(rows, result_row)
+			end
+			
+			return MatrixExpression(rows)
+		else
+			return self
+		end
+	end
+	
 return self end
 
 function MulExpression(left, right)
@@ -470,7 +528,11 @@ function MulExpression(left, right)
 	end
 	
 	function self.toString() 
-		return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
+		if self.left.kind == "numexp" and self.right.kind ~= "numexp" then
+			return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
+		else 
+			return putParen(self.left, self.priority()) .. putParen(self.right, self.priority())
+		end
 	end
 	function collectUpperMul(root, coeff, collect, rest)
 		if root.kind == "mulexp" then
@@ -615,8 +677,40 @@ function MulExpression(left, right)
 		return priority_list["mul"]
 	end
 	function self.toLatex() 
-		return putParenLatex(self.left, self.priority()) .. " \\cdot " .. putParenLatex(self.right, self.priority())
+		if self.left.kind == "numexp" and self.right.kind ~= "numexp" then
+			return putParenLatex(self.left, self.priority()) .. putParenLatex(self.right, self.priority())
+		else
+			return putParenLatex(self.left, self.priority()) .. " \\cdot " .. putParenLatex(self.right, self.priority())
+		end
 	end
+	function self.combinedMatrix()
+		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
+		local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+		if m1.m ~= m2.n or m1.n ~= m2.m then
+			table.insert(events, "Matrix mul dimensions mismatch")
+			return
+		end
+		
+		rows = {}
+		for i=1,m2.n do
+			for j=1,m1.m do
+				local cell
+				for k=1,m1.n do
+					local exp = MulExpression(m1.rows[j][k], m2.rows[k][i])
+					cell = (not cell and exp) or AddExpression(cell, exp)
+				end
+				
+				if not rows[j] then
+					rows[j] = {}
+				end
+				rows[j][i] = cell
+				
+			end
+		end
+		
+		return MatrixExpression(rows)
+	end
+	
 return self end
 
 function DivExpression(left, right)
@@ -634,9 +728,6 @@ function DivExpression(left, right)
 		local t1 = self.left.combined()
 		local t2 = self.right.combined()
 		return DivExpression(t1, t2)
-	end
-	function self.expand() 
-		return self
 	end
 	function self.derive(sym) 
 		-- (u'v - uv')/v^2
@@ -679,9 +770,6 @@ function NumExpression(num)
 	function self.combined() 
 		return NumExpression(self.num)
 	end
-	function self.expand() 
-		return self
-	end
 	function self.derive(sym) 
 		return NumExpression(0)
 	end
@@ -704,9 +792,6 @@ function SymExpression(sym)
 	end
 	function self.combined() 
 		return SymExpression(self.sym)
-	end
-	function self.expand() 
-		return self
 	end
 	function self.derive(sym) 
 		if self.sym == sym then 
@@ -737,10 +822,6 @@ function FunExpression(name, left)
 	function self.combined() 
 		local t1 = self.left.combined()
 		return FunExpression(self.name, t1)
-	end
-	
-	function self.expand() 
-		return self
 	end
 	
 	function self.derive(sym) 
@@ -855,8 +936,8 @@ function ExpExpression(left, right)
 	end
 return self end
 
-function MatrixExpression(rows)
-	local self = { kind = "matexp", rows = rows }
+function MatrixExpression(rows, m, n)
+	local self = { kind = "matexp", rows = rows, m = m, n = n }
 	function self.toString()
 		local rowsString = {}
 		for _,row in ipairs(self.rows) do
@@ -879,7 +960,7 @@ function MatrixExpression(rows)
 			end
 			table.insert(new_rows, new_cells)
 		end
-		return MatrixExpression(new_rows)
+		return MatrixExpression(new_rows, self.m, self.n)
 	end
 	function self.combined()
 		local new_rows = {}
@@ -890,7 +971,7 @@ function MatrixExpression(rows)
 			end
 			table.insert(new_rows, new_cells)
 		end
-		return MatrixExpression(new_rows)
+		return MatrixExpression(new_rows, self.m, self.n)
 	end
 	function self.derive(sym)
 		local new_rows = {}
@@ -901,7 +982,7 @@ function MatrixExpression(rows)
 			end
 			table.insert(new_rows, new_cells)
 		end
-		return MatrixExpression(new_rows)
+		return MatrixExpression(new_rows, self.m, self.n)
 	end
 	function self.toLatex()
 		local s = "\\begin{pmatrix}\n"
@@ -1089,7 +1170,7 @@ local function LBraToken() local self = { kind = "lbra" }
 			end
 		end
 		
-		local exp = MatrixExpression(rows)
+		local exp = MatrixExpression(rows, #rows, curlen)
 		
 		return exp
 	end
@@ -1171,7 +1252,19 @@ function copysign(mag, sign)
 end
 
 function isZero(exp)
-	return exp.kind == "numexp" and exp.num == 0
+	if exp.kind == "numexp" and exp.num == 0 then
+		return true
+	elseif exp.kind == "matexp" then
+		for i=1,exp.m do
+			for j=1,exp.n do
+				if not isZero(exp.rows[i][j]) then
+					return false
+				end
+			end
+		end
+		return true
+	end
+	return true
 end
 
 function isOne(exp)
@@ -1269,6 +1362,10 @@ local function expand()
 	local derived = combined.derive("x")
 	derived = derived.expand().combined()
 	print("derived " .. derived.toString())
+	
+	local mat = combined.combinedMatrix().expand().combined()
+	print("Mat: " .. mat.toString())
+	combined = mat
 	
 	f = io.open("out.tex", "w")
 	f:write("\\documentclass[a4paper]{slides}\n")
