@@ -63,7 +63,7 @@ local priority_list = {
 	
 	["mul"] = 60,
 	
-	["div"] = 60,
+	["div"] = 70,
 	
 	["lpar"] = 100,
 	
@@ -105,6 +105,8 @@ local upper = {}
 
 symTable = {}
 
+local answerIndex = 1
+
 function AddExpression(left, right) 
 	local self = { kind = "addexp", left = left, right = right }
 	local collectUpperAddCombine
@@ -116,7 +118,7 @@ function AddExpression(left, right)
 		return AddExpression(t1, t2)
 	end
 	function self.toString() 
-		return putParen(self.left, self.priority()) .. "+" .. putParen(self.right, self.priority())
+		return putParen(self.left, self.priority()) .. ((self.right.kind == "presubexp" and ("-" .. putParen(self.right.left, self.priority()))) or ("+" .. putParen(self.right, self.priority())))
 	end
 	function collectUpperAddCombine(root, constant, collect, collectPow, rest)
 		if root.kind == "addexp" then
@@ -312,8 +314,10 @@ function AddExpression(left, right)
 				local exp_exp = ExpExpression(SymExpression(pow[1]), NumExpression(pow[2]))
 				if num == 1 then
 					exp_mul = exp_exp
+				elseif num == -1 then
+					exp_mul = PrefixSubExpression(exp_exp)
 				else
-					exp_mul = MulExpression(NumExpression(num), exp_exp)
+					exp_mul = MulExpression(NumExpression(num), exp_exp).combined()
 				end
 		
 				if not exp_add then
@@ -350,7 +354,7 @@ function AddExpression(left, right)
 		return priority_list["add"]
 	end
 	function self.toLatex() 
-		return putParenLatex(self.left, self.priority()) .. "+" .. putParenLatex(self.right, self.priority())
+		return putParen(self.left, self.priority()) .. ((self.right.kind == "presubexp" and ("-" .. putParen(self.right.left, self.priority()))) or ("+" .. putParen(self.right, self.priority())))
 	end
 	function self.combinedMatrix()
 		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
@@ -401,6 +405,8 @@ function PrefixSubExpression(left)
 		local t1 = self.left.combined()
 		if t1.kind == "presubexp" then
 			return t1.left.combined()
+		elseif isZero(t1) then
+			return t1.combined()
 		end
 		return PrefixSubExpression(t1)
 	end
@@ -789,7 +795,7 @@ function DivExpression(left, right)
 		return priority_list["div"]
 	end
 	function self.toLatex() 
-		return "frac{" .. self.left.toLatex() .. "}{" .. putParenLatex(self.right, self.priority()) .. "}"
+		return "\\frac{" .. self.left.toLatex() .. "}{" .. self.right.toLatex() .. "}"
 	end
 	function self.getLeft() 
 		return self.left.getLeft()
@@ -870,6 +876,83 @@ function FunExpression(name, left)
 	
 	function self.expand() 
 		local t1 = self.left.expand()
+		print("t1: " .. t1.toString())
+		if self.name == "grad" and t1.kind == "symexp" then
+			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+				local symEntry = symTable[t1.sym]
+				local args = symEntry.args
+				assert(symEntry.val.kind ~= "matexp")
+				local rows = {}
+				for _, arg in ipairs(args) do
+					table.insert(rows, { symEntry.val.derive(arg) })
+				end
+				
+				local newSymEntry = {
+					name = answerIndex,
+					kind = "fun",
+					args = args,
+					val = MatrixExpression(rows, #args, 1)
+				}
+				answerIndex = answerIndex + 1
+				symTable[newSymEntry.name] = newSymEntry
+				
+				return SymExpression(newSymEntry.name)
+			end
+		end
+		
+		if self.name == "div" and t1.kind == "symexp" then
+			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+				local symEntry = symTable[t1.sym]
+				local args = symEntry.args
+				local exp_add
+				assert(symEntry.val.kind ~= "matexp")
+				for _, arg in ipairs(args) do
+					local t = symEntry.val.derive(arg)
+					exp_add = (exp_add and AddExpression(exp_add, t)) or t
+				end
+				
+				local newSymEntry = {
+					name = answerIndex,
+					kind = "fun",
+					args = args,
+					val = exp_add
+				}
+				answerIndex = answerIndex + 1
+				symTable[newSymEntry.name] = newSymEntry
+				
+				return SymExpression(newSymEntry.name)
+			end
+		end
+		
+		if self.name == "rot" and t1.kind == "symexp" then
+			print("apply rot to " .. t1.sym)
+			local arg
+			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+				local symEntry = symTable[t1.sym]
+				local args = symEntry.args
+		
+				assert(symEntry.val.kind == "matexp")
+				assert(symEntry.val.m == 3 and symEntry.val.n == 1)
+		
+				local rows = {}
+				rows = {}
+				local mat = symEntry.val
+				rows[1] = { AddExpression(mat.rows[3][1].derive(args[2]), PrefixSubExpression(mat.rows[2][1].derive(args[3]))) }
+				rows[2] = { AddExpression(mat.rows[1][1].derive(args[3]), PrefixSubExpression(mat.rows[3][1].derive(args[1]))) }
+				rows[3] = { AddExpression(mat.rows[2][1].derive(args[1]), PrefixSubExpression(mat.rows[1][1].derive(args[2]))) }
+				local newSymEntry = {
+					name = answerIndex,
+					kind = "fun",
+					args = args,
+					val = MatrixExpression(rows, #args, 1)
+				}
+				answerIndex = answerIndex + 1
+				symTable[newSymEntry.name] = newSymEntry
+				
+				return SymExpression(newSymEntry.name)
+			end
+		end
+		
 		return FunExpression(self.name, t1) 
 	end
 	
@@ -926,7 +1009,7 @@ function FunExpression(name, left)
 		return priority_list["fun"]
 	end
 	function self.toLatex() 
-		return "\\" .. self.name .. "(" .. self.left.toLatex() .. ")"
+		return "\\" .. self.name .. "{" .. self.left.toLatex() .. "}"
 	end
 	
 	function self.getLeft() 
@@ -1072,6 +1155,22 @@ function MatrixExpression(rows, m, n)
 	function self.priority() 
 		return priority_list["mat"]
 	end
+	function self.getLeft() 
+		return self
+	end
+	
+	function self.substitute() 
+		local rows = {}
+		for i=1,self.m do
+			row = {}
+			for j=1,self.n do
+				table.insert(row, self.rows[i][j].substitute())
+			end
+			table.insert(rows, row)
+		end
+		return MatrixExpression(rows, self.m, self.n)
+	end
+	
 return self end
 
 -- closure-based object
@@ -1445,15 +1544,8 @@ local function expand()
 	
 	local subst = combined.substitute().expand().combined()
 	print("subst " .. subst.toString())
-	local derived = combined.derive("x").expand().combined()
-	print("derived " .. derived.toString())
 	
-	if combined.kind == "matexp" then
-		local mat = combined.combinedMatrix().expand().combined()
-		print("Mat: " .. mat.toString())
-		combined = mat
-	end
-	
+	-- @derive_test
 	-- @show_latex
 end
 

@@ -23,7 +23,7 @@ local function expand()
 	@expand_expression
 	@combine_symbols
 	@substitute_test
-	@derive_test
+	-- @derive_test
 	@test_matrix
 	-- @show_latex
 end
@@ -365,7 +365,7 @@ end
 function self.priority() return priority_list["div"] end
 
 @priority_list+=
-["div"] = 60,
+["div"] = 70,
 
 @lpar_token_methods+=
 function self.prefix()
@@ -603,6 +603,8 @@ end
 @fun_exp_methods+=
 function self.expand() 
 	local t1 = self.left.expand()
+	print("t1: " .. t1.toString())
+	@apply_functions_for_expand
 	return FunExpression(self.name, t1) 
 end
 
@@ -624,7 +626,7 @@ end
 
 @add_exp_methods+=
 function self.toString() 
-	return putParen(self.left, self.priority()) .. "+" .. putParen(self.right, self.priority())
+	return putParen(self.left, self.priority()) .. ((self.right.kind == "presubexp" and ("-" .. putParen(self.right.left, self.priority()))) or ("+" .. putParen(self.right, self.priority())))
 end
 @sub_exp_methods+=
 function self.toString() 
@@ -881,8 +883,10 @@ for pow, num in pairs(storeCollectPow) do
 		local exp_exp = ExpExpression(SymExpression(pow[1]), NumExpression(pow[2]))
 		if num == 1 then
 			exp_mul = exp_exp
+		elseif num == -1 then
+			exp_mul = PrefixSubExpression(exp_exp)
 		else
-			exp_mul = MulExpression(NumExpression(num), exp_exp)
+			exp_mul = MulExpression(NumExpression(num), exp_exp).combined()
 		end
 
 		if not exp_add then
@@ -913,6 +917,8 @@ function self.combined()
 	local t1 = self.left.combined()
 	if t1.kind == "presubexp" then
 		return t1.left.combined()
+	elseif isZero(t1) then
+		return t1.combined()
 	end
 	return PrefixSubExpression(t1)
 end
@@ -1110,6 +1116,7 @@ end
 @fun_exp_methods+=
 function self.combined() 
 	local t1 = self.left.combined()
+	@apply_functions_for_combine
 	return FunExpression(self.name, t1)
 end
 
@@ -1326,7 +1333,7 @@ end
 
 @add_exp_methods+=
 function self.toLatex() 
-	return putParenLatex(self.left, self.priority()) .. "+" .. putParenLatex(self.right, self.priority())
+	return putParen(self.left, self.priority()) .. ((self.right.kind == "presubexp" and ("-" .. putParen(self.right.left, self.priority()))) or ("+" .. putParen(self.right, self.priority())))
 end
 @sub_exp_methods+=
 function self.toLatex() 
@@ -1346,7 +1353,7 @@ function self.toLatex()
 end
 @div_exp_methods+=
 function self.toLatex() 
-	return "frac{" .. self.left.toLatex() .. "}{" .. putParenLatex(self.right, self.priority()) .. "}"
+	return "\\frac{" .. self.left.toLatex() .. "}{" .. self.right.toLatex() .. "}"
 end
 @exp_exp_methods+=
 function self.toLatex() 
@@ -1362,14 +1369,14 @@ function self.toLatex()
 end
 @fun_exp_methods+=
 function self.toLatex() 
-	return "\\" .. self.name .. "(" .. self.left.toLatex() .. ")"
+	return "\\" .. self.name .. "{" .. self.left.toLatex() .. "}"
 end
 
 @show_latex+=
 f = io.open("out.tex", "w")
 f:write("\\documentclass[a4paper]{slides}\n")
 f:write("\\begin{document}\n")
-f:write("$" .. combined.toLatex() .. "$\n")
+f:write("$" .. combined.substitute().expand().combined().toLatex() .. "$\n")
 f:write("\\end{document}\n")
 f:close()
 vim.api.nvim_command("!pandoc out.tex -o out.pdf")
@@ -1469,13 +1476,13 @@ end
 @expressions+=
 function MatrixExpression(rows, m, n)
 	local self = { kind = "matexp", rows = rows, m = m, n = n }
-	@exp_mat_methods
+	@mat_exp_methods
 return self end
 
 @make_matrix_expression+=
 local exp = MatrixExpression(rows, #rows, curlen)
 
-@exp_mat_methods+=
+@mat_exp_methods+=
 function self.toString()
 	local rowsString = {}
 	for _,row in ipairs(self.rows) do
@@ -1489,7 +1496,7 @@ function self.toString()
 	return "[" .. table.concat(rowsString, ";") .. "]"
 end
 
-@exp_mat_methods+=
+@mat_exp_methods+=
 function self.expand()
 	local new_rows = {}
 	for _,row in ipairs(self.rows) do
@@ -1536,7 +1543,7 @@ function self.toLatex()
 	return s
 end
 
-@exp_mat_methods+=
+@mat_exp_methods+=
 function self.priority() 
 	return priority_list["mat"]
 end
@@ -1570,13 +1577,6 @@ for i=1,m1.m do
 		table.insert(result_row, AddExpression(m1.rows[i][j], m2.rows[i][j]))
 	end
 	table.insert(rows, result_row)
-end
-
-@test_matrix+=
-if combined.kind == "matexp" then
-	local mat = combined.combinedMatrix().expand().combined()
-	print("Mat: " .. mat.toString())
-	combined = mat
 end
 
 @sub_exp_methods+=
@@ -1862,3 +1862,88 @@ end
 @substitute_test+=
 local subst = combined.substitute().expand().combined()
 print("subst " .. subst.toString())
+
+@apply_functions_for_expand+=
+if self.name == "grad" and t1.kind == "symexp" then
+	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+		local symEntry = symTable[t1.sym]
+		local args = symEntry.args
+		assert(symEntry.val.kind ~= "matexp")
+		@apply_grad
+		@make_function_for_matrix
+		return SymExpression(newSymEntry.name)
+	end
+end
+
+@apply_grad+=
+local rows = {}
+for _, arg in ipairs(args) do
+	table.insert(rows, { symEntry.val.derive(arg) })
+end
+
+@script_variables+=
+local answerIndex = 1
+
+@make_function_for_matrix+=
+local newSymEntry = {
+	name = answerIndex,
+	kind = "fun",
+	args = args,
+	val = MatrixExpression(rows, #args, 1)
+}
+answerIndex = answerIndex + 1
+symTable[newSymEntry.name] = newSymEntry
+
+@apply_functions_for_expand+=
+if self.name == "div" and t1.kind == "symexp" then
+	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+		local symEntry = symTable[t1.sym]
+		local args = symEntry.args
+		local exp_add
+		assert(symEntry.val.kind ~= "matexp")
+		@apply_div
+		@make_function_for_exp_add
+		return SymExpression(newSymEntry.name)
+	end
+end
+
+@apply_div+=
+for _, arg in ipairs(args) do
+	local t = symEntry.val.derive(arg)
+	exp_add = (exp_add and AddExpression(exp_add, t)) or t
+end
+
+@make_function_for_exp_add+=
+local newSymEntry = {
+	name = answerIndex,
+	kind = "fun",
+	args = args,
+	val = exp_add
+}
+answerIndex = answerIndex + 1
+symTable[newSymEntry.name] = newSymEntry
+
+@apply_functions_for_expand+=
+if self.name == "rot" and t1.kind == "symexp" then
+	print("apply rot to " .. t1.sym)
+	local arg
+	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+		local symEntry = symTable[t1.sym]
+		local args = symEntry.args
+
+		assert(symEntry.val.kind == "matexp")
+		assert(symEntry.val.m == 3 and symEntry.val.n == 1)
+
+		local rows = {}
+		@apply_rot
+		@make_function_for_matrix
+		return SymExpression(newSymEntry.name)
+	end
+end
+
+@apply_rot+=
+rows = {}
+local mat = symEntry.val
+rows[1] = { AddExpression(mat.rows[3][1].derive(args[2]), PrefixSubExpression(mat.rows[2][1].derive(args[3]))) }
+rows[2] = { AddExpression(mat.rows[1][1].derive(args[3]), PrefixSubExpression(mat.rows[3][1].derive(args[1]))) }
+rows[3] = { AddExpression(mat.rows[2][1].derive(args[1]), PrefixSubExpression(mat.rows[1][1].derive(args[2]))) }
