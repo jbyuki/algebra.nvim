@@ -9,6 +9,7 @@
 
 @parse
 @expand
+@assign
 
 return {
 @export_symbols
@@ -21,6 +22,7 @@ local function expand()
 	@print_result
 	@expand_expression
 	@combine_symbols
+	@substitute_test
 	@derive_test
 	@test_matrix
 	-- @show_latex
@@ -43,10 +45,18 @@ local parseAll
 
 @parse+=
 function parseAll(str)
-	@clear_tokens
-	@tokenize_string
+	tokenize(str)
 	@parse_tokens
 	return exp
+end
+
+@declare_functions+=
+local tokenize
+
+@functions+=
+function tokenize(str)
+	@clear_tokens
+	@tokenize_string
 end
 
 @clear_tokens+=
@@ -1701,3 +1711,154 @@ end
 function self.getLeft() 
 	return self
 end
+
+@assign+=
+local function assign()
+	@get_current_string
+	@look_for_assign_symbol
+	@get_left_from_assign_symbol_and_parse
+	local symEntry
+	@if_paren_set_new_function_variable
+	@otherwise_just_regular_variable
+	@get_right_side_of_variable_and_parse
+	@assign_exp_in_symbol_table
+end
+
+@export_symbols+=
+assign = assign,
+
+@look_for_assign_symbol+=
+local i1, i2 = string.find(line, ":=")
+assert(i1)
+
+@get_left_from_assign_symbol_and_parse+=
+local left = string.sub(line, 1, i1-1)
+tokenize(left)
+
+@if_paren_set_new_function_variable+=
+if string.find(left, "%(") then
+	@parse_function_name_and_arguments
+
+@parse_function_name_and_arguments+=
+assert(#tokens > 2)
+assert(tokens[1].kind == "sym")
+local name = tokens[1].sym
+local args = {}
+assert(tokens[2].kind == "lpar")
+i = 2
+while tokens[i] and tokens[i].kind ~= "rpar" do
+	i = i + 1
+	assert(tokens[i] and tokens[i].kind == "sym")
+	table.insert(args, tokens[i].sym)
+	i = i + 1
+end
+
+symEntry = {
+	name = name,
+	kind = "fun",
+	args = args
+}
+
+@otherwise_just_regular_variable+=
+else
+	assert(#tokens == 1)
+	assert(tokens[1].kind == "sym")
+	local name = tokens[1].sym
+
+	symEntry = {
+		name = name,
+		kind = "var",
+	}
+end
+
+@get_right_side_of_variable_and_parse+=
+local right = string.sub(line, i2+1)
+local exp = parseAll(right)
+if not exp then
+	return
+end
+
+@script_variables+=
+symTable = {}
+
+@assign_exp_in_symbol_table+=
+symEntry.val = exp.expand().combined()
+symTable[symEntry.name] = symEntry
+
+@functions+=
+local function printSymTable()
+	print("Symbol table:")
+	for name, sym in pairs(symTable) do
+		print(name .. " := " .. sym.val.toString())
+	end
+end
+
+@export_symbols+=
+printSymTable = printSymTable,
+
+@add_exp_methods+=
+function self.substitute() 
+	local t1 = self.left.substitute()
+	local t2 = self.right.substitute()
+	return AddExpression(t1, t2)
+end
+@sub_exp_methods+=
+function self.substitute() 
+	local t1 = self.left.substitute()
+	local t2 = self.right.substitute()
+	return SubExpression(t1, t2)
+end
+@presub_exp_methods+=
+function self.substitute() 
+	local t1 = self.left.substitute()
+	return PrefixSubExpression(t1, t2)
+end
+@mul_exp_methods+=
+function self.substitute() 
+	local t1 = self.left.substitute()
+	local t2 = self.right.substitute()
+	return MulExpression(t1, t2)
+end
+@div_exp_methods+=
+function self.substitute() 
+	local t1 = self.left.substitute()
+	local t2 = self.right.substitute()
+	return DivExpression(t1, t2)
+end
+@exp_exp_methods+=
+function self.substitute() 
+	local t1 = self.left.substitute()
+	local t2 = self.right.substitute()
+	return ExpExpression(t1, t2)
+end
+@sym_exp_methods+=
+function self.substitute() 
+	if symTable[self.sym] then
+		return symTable[self.sym].val.substitute()
+	end
+	return self
+end
+@num_exp_methods+=
+function self.substitute() 
+	return NumExpression(self.num)
+end
+@fun_exp_methods+=
+function self.substitute() 
+	return FunExpression(self.name, self.left.substitute())
+end
+@mat_exp_methods+=
+function self.substitute() 
+	local rows = {}
+	for i=1,self.m do
+		row = {}
+		for j=1,self.n do
+			table.insert(row, self.rows[i][j].substitute())
+		end
+		table.insert(rows, row)
+	end
+	return MatrixExpression(rows, self.m, self.n)
+end
+
+@substitute_test+=
+local subst = combined.substitute().expand().combined()
+print("subst " .. subst.toString())

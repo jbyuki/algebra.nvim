@@ -17,3 +17,5 @@ lua algebra = require("algebra")
 
 @register_mappings+=
 nnoremap <F2> :lua algebra.expand()<CR>
+nnoremap <F3> :lua algebra.assign()<CR>
+nnoremap <F5> :lua algebra.printSymTable()<CR>

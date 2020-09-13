@@ -6,4 +6,6 @@
 lua algebra = require("algebra")
 
 nnoremap <F2> :lua algebra.expand()<CR>
+nnoremap <F3> :lua algebra.assign()<CR>
+nnoremap <F5> :lua algebra.printSymTable()<CR>
 

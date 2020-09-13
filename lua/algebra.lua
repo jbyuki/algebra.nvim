@@ -1,5 +1,7 @@
 local parseAll
 
+local tokenize
+
 local nocase
 
 local nextToken
@@ -100,6 +102,8 @@ local funs = {
 }
 
 local upper = {}
+
+symTable = {}
 
 function AddExpression(left, right) 
 	local self = { kind = "addexp", left = left, right = right }
@@ -375,6 +379,11 @@ function AddExpression(left, right)
 	function self.getLeft() 
 		return self.left.getLeft()
 	end
+	function self.substitute() 
+		local t1 = self.left.substitute()
+		local t2 = self.right.substitute()
+		return AddExpression(t1, t2)
+	end
 return self end
 
 function PrefixSubExpression(left) 
@@ -426,6 +435,10 @@ function PrefixSubExpression(left)
 	
 	function self.getLeft() 
 		return self
+	end
+	function self.substitute() 
+		local t1 = self.left.substitute()
+		return PrefixSubExpression(t1, t2)
 	end
 return self end
 
@@ -486,6 +499,11 @@ function SubExpression(left, right)
 	
 	function self.getLeft() 
 		return self.left.getLeft()
+	end
+	function self.substitute() 
+		local t1 = self.left.substitute()
+		local t2 = self.right.substitute()
+		return SubExpression(t1, t2)
 	end
 return self end
 
@@ -723,6 +741,11 @@ function MulExpression(left, right)
 	function self.getLeft() 
 		return self.left.getLeft()
 	end
+	function self.substitute() 
+		local t1 = self.left.substitute()
+		local t2 = self.right.substitute()
+		return MulExpression(t1, t2)
+	end
 return self end
 
 function DivExpression(left, right)
@@ -771,6 +794,11 @@ function DivExpression(left, right)
 	function self.getLeft() 
 		return self.left.getLeft()
 	end
+	function self.substitute() 
+		local t1 = self.left.substitute()
+		local t2 = self.right.substitute()
+		return DivExpression(t1, t2)
+	end
 return self end
 
 function NumExpression(num)
@@ -796,6 +824,9 @@ function NumExpression(num)
 	end
 	function self.getLeft() 
 		return self
+	end
+	function self.substitute() 
+		return NumExpression(self.num)
 	end
 return self end
 
@@ -823,6 +854,12 @@ function SymExpression(sym)
 		return self.sym
 	end
 	function self.getLeft() 
+		return self
+	end
+	function self.substitute() 
+		if symTable[self.sym] then
+			return symTable[self.sym].val.substitute()
+		end
 		return self
 	end
 return self end
@@ -895,6 +932,9 @@ function FunExpression(name, left)
 	function self.getLeft() 
 		return self
 	end
+	function self.substitute() 
+		return FunExpression(self.name, self.left.substitute())
+	end
 return self end
 
 function ExpExpression(left, right)
@@ -960,6 +1000,11 @@ function ExpExpression(left, right)
 	end
 	function self.getLeft() 
 		return self.left.getLeft()
+	end
+	function self.substitute() 
+		local t1 = self.left.substitute()
+		local t2 = self.right.substitute()
+		return ExpExpression(t1, t2)
 	end
 return self end
 
@@ -1217,6 +1262,63 @@ local function SemiToken() local self = { kind = "semi" }
 return self end
 
 
+function tokenize(str)
+	tokens = {}
+	
+	local i = 1
+	while i <= string.len(str) do
+		local c = string.sub(str, i, i)
+		
+		if string.match(c, "%s") then
+			i = i+1 
+		
+		elseif c == "+" then table.insert(tokens, AddToken()) i = i+1
+		elseif c == "-" then table.insert(tokens, SubToken()) i = i+1
+		elseif c == "*" then table.insert(tokens, MulToken()) i = i+1
+		elseif c == "/" then table.insert(tokens, DivToken()) i = i+1
+		
+		elseif c == "^" then table.insert(tokens, ExpToken()) i = i+1
+		
+		elseif c == "(" then table.insert(tokens, LParToken()) i = i+1
+		elseif c == ")" then table.insert(tokens, RParToken()) i = i+1
+		
+		elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
+		elseif c == "]" then table.insert(tokens, RBraToken()) i = i+1
+		elseif c == "," then table.insert(tokens, CommaToken()) i = i+1
+		elseif c == ";" then table.insert(tokens, SemiToken()) i = i+1
+		
+		elseif string.match(c, "%d") then 
+			local parsed = string.match(string.sub(str, i), "%d+%.?%d*")
+			i = i+string.len(parsed)
+			table.insert(tokens, NumToken(tonumber(parsed))) 
+		
+		elseif string.match(c, "%a") then
+			if #tokens > 0 and tokens[#tokens].kind == "num" then
+				table.insert(tokens, MulToken())
+			end
+			
+			local parsed = string.match(string.sub(str, i), "%a+")
+			i = i+string.len(parsed)
+			
+			if string.match(parsed, "^" .. nocase("pi") .. "$") then
+				table.insert(tokens, NumToken(3.14159265258979))
+			elseif string.match(parsed, "^" .. nocase("e") .. "$") then
+				table.insert(tokens, NumToken(2.71828182845905))
+			
+			else
+				table.insert(tokens, SymToken(parsed))
+			end
+			
+		
+		else
+			table.insert(events, "Unexpected character insert " .. c)
+			i = i+1
+		end
+		
+	end
+	
+end
+
 function nocase (s)
 	s = string.gsub(s, "%a", function (c)
 		if string.match(c, "[a-zA-Z]") then
@@ -1307,62 +1409,16 @@ function putParenLatex(exp, p)
 	end
 end
 
+local function printSymTable()
+	print("Symbol table:")
+	for name, sym in pairs(symTable) do
+		print(name .. " := " .. sym.val.toString())
+	end
+end
+
 
 function parseAll(str)
-	tokens = {}
-	
-	local i = 1
-	while i <= string.len(str) do
-		local c = string.sub(str, i, i)
-		
-		if string.match(c, "%s") then
-			i = i+1 
-		
-		elseif c == "+" then table.insert(tokens, AddToken()) i = i+1
-		elseif c == "-" then table.insert(tokens, SubToken()) i = i+1
-		elseif c == "*" then table.insert(tokens, MulToken()) i = i+1
-		elseif c == "/" then table.insert(tokens, DivToken()) i = i+1
-		
-		elseif c == "^" then table.insert(tokens, ExpToken()) i = i+1
-		
-		elseif c == "(" then table.insert(tokens, LParToken()) i = i+1
-		elseif c == ")" then table.insert(tokens, RParToken()) i = i+1
-		
-		elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
-		elseif c == "]" then table.insert(tokens, RBraToken()) i = i+1
-		elseif c == "," then table.insert(tokens, CommaToken()) i = i+1
-		elseif c == ";" then table.insert(tokens, SemiToken()) i = i+1
-		
-		elseif string.match(c, "%d") then 
-			local parsed = string.match(string.sub(str, i), "%d+%.?%d*")
-			i = i+string.len(parsed)
-			table.insert(tokens, NumToken(tonumber(parsed))) 
-		
-		elseif string.match(c, "%a") then
-			if #tokens > 0 and tokens[#tokens].kind == "num" then
-				table.insert(tokens, MulToken())
-			end
-			
-			local parsed = string.match(string.sub(str, i), "%a+")
-			i = i+string.len(parsed)
-			
-			if string.match(parsed, "^" .. nocase("pi") .. "$") then
-				table.insert(tokens, NumToken(3.14159265258979))
-			elseif string.match(parsed, "^" .. nocase("e") .. "$") then
-				table.insert(tokens, NumToken(2.71828182845905))
-			
-			else
-				table.insert(tokens, SymToken(parsed))
-			end
-			
-		
-		else
-			table.insert(events, "Unexpected character insert " .. c)
-			i = i+1
-		end
-		
-	end
-	
+	tokenize(str)
 	token_index = 1
 	
 	local exp = parse(0)
@@ -1387,6 +1443,8 @@ local function expand()
 	table.insert(events, combined.toString())
 	print("simplifed " .. combined.toString())
 	
+	local subst = combined.substitute().expand().combined()
+	print("subst " .. subst.toString())
 	local derived = combined.derive("x").expand().combined()
 	print("derived " .. derived.toString())
 	
@@ -1399,9 +1457,66 @@ local function expand()
 	-- @show_latex
 end
 
+local function assign()
+	local line = vim.api.nvim_get_current_line()
+	
+	local i1, i2 = string.find(line, ":=")
+	assert(i1)
+	
+	local left = string.sub(line, 1, i1-1)
+	tokenize(left)
+	
+	local symEntry
+	if string.find(left, "%(") then
+		assert(#tokens > 2)
+		assert(tokens[1].kind == "sym")
+		local name = tokens[1].sym
+		local args = {}
+		assert(tokens[2].kind == "lpar")
+		i = 2
+		while tokens[i] and tokens[i].kind ~= "rpar" do
+			i = i + 1
+			assert(tokens[i] and tokens[i].kind == "sym")
+			table.insert(args, tokens[i].sym)
+			i = i + 1
+		end
+		
+		symEntry = {
+			name = name,
+			kind = "fun",
+			args = args
+		}
+		
+	
+	else
+		assert(#tokens == 1)
+		assert(tokens[1].kind == "sym")
+		local name = tokens[1].sym
+	
+		symEntry = {
+			name = name,
+			kind = "var",
+		}
+	end
+	
+	local right = string.sub(line, i2+1)
+	local exp = parseAll(right)
+	if not exp then
+		return
+	end
+	
+	symEntry.val = exp.expand().combined()
+	symTable[symEntry.name] = symEntry
+	
+end
+
 
 return {
 expand = expand,
+
+assign = assign,
+
+printSymTable = printSymTable,
 
 }
 
