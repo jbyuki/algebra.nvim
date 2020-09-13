@@ -23,7 +23,7 @@ local function expand()
 	@combine_symbols
 	@derive_test
 	@test_matrix
-	@show_latex
+	-- @show_latex
 end
 
 @export_symbols+=
@@ -626,10 +626,10 @@ function self.toString()
 end
 @mul_exp_methods+=
 function self.toString() 
-	if self.left.kind == "numexp" and self.right.kind ~= "numexp" then
-		return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
-	else 
+	if self.left.kind == "numexp" and self.right.getLeft().kind ~= "numexp" then
 		return putParen(self.left, self.priority()) .. putParen(self.right, self.priority())
+	else 
+		return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
 	end
 end
 @div_exp_methods+=
@@ -1112,7 +1112,7 @@ function isZero(exp)
 		return true
 	@matrix_zero
 	end
-	return true
+	return false
 end
 
 @add_exp_methods+=
@@ -1252,8 +1252,7 @@ elseif self.name == "sqrt" then
 	return d
 
 @derive_test+=
-local derived = combined.derive("x")
-derived = derived.expand().combined()
+local derived = combined.derive("x").expand().combined()
 print("derived " .. derived.toString())
 
 @add_exp_methods+=
@@ -1564,9 +1563,11 @@ for i=1,m1.m do
 end
 
 @test_matrix+=
-local mat = combined.combinedMatrix().expand().combined()
-print("Mat: " .. mat.toString())
-combined = mat
+if combined.kind == "matexp" then
+	local mat = combined.combinedMatrix().expand().combined()
+	print("Mat: " .. mat.toString())
+	combined = mat
+end
 
 @sub_exp_methods+=
 function self.combinedMatrix()
@@ -1659,3 +1660,44 @@ elseif exp.kind == "matexp" then
 		end
 	end
 	return true
+
+@add_exp_methods+=
+function self.getLeft() 
+	return self.left.getLeft()
+end
+@sub_exp_methods+=
+function self.getLeft() 
+	return self.left.getLeft()
+end
+@presub_exp_methods+=
+function self.getLeft() 
+	return self
+end
+@mul_exp_methods+=
+function self.getLeft() 
+	return self.left.getLeft()
+end
+@div_exp_methods+=
+function self.getLeft() 
+	return self.left.getLeft()
+end
+@exp_exp_methods+=
+function self.getLeft() 
+	return self.left.getLeft()
+end
+@sym_exp_methods+=
+function self.getLeft() 
+	return self
+end
+@num_exp_methods+=
+function self.getLeft() 
+	return self
+end
+@fun_exp_methods+=
+function self.getLeft() 
+	return self
+end
+@mat_exp_methods+=
+function self.getLeft() 
+	return self
+end

@@ -372,6 +372,9 @@ function AddExpression(left, right)
 		end
 	end
 	
+	function self.getLeft() 
+		return self.left.getLeft()
+	end
 return self end
 
 function PrefixSubExpression(left) 
@@ -421,6 +424,9 @@ function PrefixSubExpression(left)
 		end
 	end
 	
+	function self.getLeft() 
+		return self
+	end
 return self end
 
 function SubExpression(left, right)
@@ -478,6 +484,9 @@ function SubExpression(left, right)
 		end
 	end
 	
+	function self.getLeft() 
+		return self.left.getLeft()
+	end
 return self end
 
 function MulExpression(left, right)
@@ -528,10 +537,10 @@ function MulExpression(left, right)
 	end
 	
 	function self.toString() 
-		if self.left.kind == "numexp" and self.right.kind ~= "numexp" then
-			return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
-		else 
+		if self.left.kind == "numexp" and self.right.getLeft().kind ~= "numexp" then
 			return putParen(self.left, self.priority()) .. putParen(self.right, self.priority())
+		else 
+			return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
 		end
 	end
 	function collectUpperMul(root, coeff, collect, rest)
@@ -711,6 +720,9 @@ function MulExpression(left, right)
 		return MatrixExpression(rows)
 	end
 	
+	function self.getLeft() 
+		return self.left.getLeft()
+	end
 return self end
 
 function DivExpression(left, right)
@@ -756,6 +768,9 @@ function DivExpression(left, right)
 	function self.toLatex() 
 		return "frac{" .. self.left.toLatex() .. "}{" .. putParenLatex(self.right, self.priority()) .. "}"
 	end
+	function self.getLeft() 
+		return self.left.getLeft()
+	end
 return self end
 
 function NumExpression(num)
@@ -778,6 +793,9 @@ function NumExpression(num)
 	end
 	function self.toLatex() 
 		return self.num
+	end
+	function self.getLeft() 
+		return self
 	end
 return self end
 
@@ -803,6 +821,9 @@ function SymExpression(sym)
 	end
 	function self.toLatex() 
 		return self.sym
+	end
+	function self.getLeft() 
+		return self
 	end
 return self end
 
@@ -871,6 +892,9 @@ function FunExpression(name, left)
 		return "\\" .. self.name .. "(" .. self.left.toLatex() .. ")"
 	end
 	
+	function self.getLeft() 
+		return self
+	end
 return self end
 
 function ExpExpression(left, right)
@@ -933,6 +957,9 @@ function ExpExpression(left, right)
 	end
 	function self.toLatex() 
 		return putParenLatex(self.left, self.priority()) .. "^" .. putParenLatex(self.right, self.priority())
+	end
+	function self.getLeft() 
+		return self.left.getLeft()
 	end
 return self end
 
@@ -1263,8 +1290,9 @@ function isZero(exp)
 			end
 		end
 		return true
+	
 	end
-	return true
+	return false
 end
 
 function isOne(exp)
@@ -1359,23 +1387,16 @@ local function expand()
 	table.insert(events, combined.toString())
 	print("simplifed " .. combined.toString())
 	
-	local derived = combined.derive("x")
-	derived = derived.expand().combined()
+	local derived = combined.derive("x").expand().combined()
 	print("derived " .. derived.toString())
 	
-	local mat = combined.combinedMatrix().expand().combined()
-	print("Mat: " .. mat.toString())
-	combined = mat
+	if combined.kind == "matexp" then
+		local mat = combined.combinedMatrix().expand().combined()
+		print("Mat: " .. mat.toString())
+		combined = mat
+	end
 	
-	f = io.open("out.tex", "w")
-	f:write("\\documentclass[a4paper]{slides}\n")
-	f:write("\\begin{document}\n")
-	f:write("$" .. combined.toLatex() .. "$\n")
-	f:write("\\end{document}\n")
-	f:close()
-	vim.api.nvim_command("!pandoc out.tex -o out.pdf")
-	vim.api.nvim_command("!start out.pdf")
-	
+	-- @show_latex
 end
 
 
