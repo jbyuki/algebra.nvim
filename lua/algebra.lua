@@ -1,3 +1,5 @@
+local expand
+
 local parseAll
 
 local tokenize
@@ -49,6 +51,8 @@ local isZero
 local isOne
 
 local putParenLatex
+
+local assign
 
 local isInteger
 
@@ -363,8 +367,6 @@ function AddExpression(left, right)
 	function self.combinedMatrix()
 		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
 		local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
-		print("left " .. m1.toString())
-		print("right " .. m2.toString())
 		if m1.kind == "matexp" and m2.kind == "matexp" then
 			if m1.m ~= m2.m or m1.n ~= m2.n then
 				table.insert(events, "add matrix dimensions mismatch")
@@ -382,7 +384,7 @@ function AddExpression(left, right)
 			
 			return MatrixExpression(rows)
 		else
-			return self
+			return AddExpression(m1, m2)
 		end
 	end
 	
@@ -441,7 +443,7 @@ function PrefixSubExpression(left)
 			
 			return MatrixExpression(rows)
 		else
-			return self
+			return PrefixSubExpression(m1)
 		end
 	end
 	
@@ -505,7 +507,7 @@ function SubExpression(left, right)
 			
 			return MatrixExpression(rows)
 		else
-			return self
+			return SubExpression(m1, m2)
 		end
 	end
 	
@@ -730,24 +732,28 @@ function MulExpression(left, right)
 			return
 		end
 		
-		rows = {}
-		for i=1,m2.n do
-			for j=1,m1.m do
-				local cell
-				for k=1,m1.n do
-					local exp = MulExpression(m1.rows[j][k], m2.rows[k][i])
-					cell = (not cell and exp) or AddExpression(cell, exp)
+		if m1.kind == "matexp" and m2.kind == "matexp" then
+			rows = {}
+			for i=1,m2.n do
+				for j=1,m1.m do
+					local cell
+					for k=1,m1.n do
+						local exp = MulExpression(m1.rows[j][k], m2.rows[k][i])
+						cell = (not cell and exp) or AddExpression(cell, exp)
+					end
+					
+					if not rows[j] then
+						rows[j] = {}
+					end
+					rows[j][i] = cell
+					
 				end
-				
-				if not rows[j] then
-					rows[j] = {}
-				end
-				rows[j][i] = cell
-				
 			end
+			
+			return MatrixExpression(rows, #rows, #rows[1])
+		else
+			return MulExpression(m1, m2)
 		end
-		
-		return MatrixExpression(rows, #rows, #rows[1])
 	end
 	
 	function self.getLeft() 
@@ -826,7 +832,7 @@ function NumExpression(num)
 		return NumExpression(self.num)
 	end
 	function self.toString() 
-		return self.num
+		return tostring(self.num)
 	end
 	function self.combined() 
 		return NumExpression(self.num)
@@ -858,6 +864,9 @@ function SymExpression(sym)
 		return SymExpression(self.sym) 
 	end
 	function self.toString() 
+		if symTable[self.sym] then 
+			return symTable[self.sym].val.toString()
+		end
 		return self.sym
 	end
 	function self.combined() 
@@ -878,7 +887,7 @@ function SymExpression(sym)
 		return self
 	end
 	function self.substitute() 
-		if symTable[self.sym] then
+		if symTable[self.sym] and symTable[self.sym].kind == "var" then
 			return symTable[self.sym].val.substitute()
 		end
 		return self
@@ -1603,24 +1612,29 @@ function parseAll(str)
 	return exp
 end
 
-local function expand()
-	local line = vim.api.nvim_get_current_line()
-	
+function expand(line)
 	local exp = parseAll(line)
 	if not exp then
 		return
 	end
 	
 	answer = exp
+	local symEntry = {
+		name = "answer",
+		kind = "var",
+		val = exp
+	}
+	symTable["answer"] = symEntry
 	
-	local res = exp.combinedMatrix().expand().combined()
-	print("show result " .. res.toString())
+	local res = exp.substitute().combinedMatrix().expand().combined()
+	local line = res.toString()
+	vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
+	
 	-- @show_latex
 end
 
-local function assign()
-	local line = vim.api.nvim_get_current_line()
-	
+
+function assign(line)
 	local i1, i2 = string.find(line, ":=")
 	assert(i1)
 	
@@ -1666,18 +1680,32 @@ local function assign()
 		return
 	end
 	
-	symEntry.val = exp.expand().combined()
+	exp = exp.substitute().combinedMatrix().expand().combined()
+	print(symEntry.name .. " := " .. exp.toString())
+	
+	symEntry.val = exp
 	symTable[symEntry.name] = symEntry
 	
 end
 
+function evaluate()
+	local line = vim.api.nvim_get_current_line()
+	
+	if string.match(line, ":=") then
+		assign(line)
+	
+	else
+		expand(line)
+	end
+end
+
 
 return {
-expand = expand,
-
 assign = assign,
 
 printSymTable = printSymTable,
+
+evaluate = evaluate
 
 }
 

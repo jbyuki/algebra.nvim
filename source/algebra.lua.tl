@@ -10,25 +10,23 @@
 @parse
 @expand
 @assign
+@evalulate
 
 return {
 @export_symbols
 }
 
+@declare_functions+=
+local expand
+
 @expand+=
-local function expand()
-	@get_current_string
+function expand(line)
 	@parse_string
 	@save_parsed_in_global
 	@show_result
 	-- @show_latex
 end
 
-@export_symbols+=
-expand = expand,
-
-@get_current_string+=
-local line = vim.api.nvim_get_current_line()
 
 @parse_string+=
 local exp = parseAll(line)
@@ -644,11 +642,14 @@ function self.toString()
 end
 @sym_exp_methods+=
 function self.toString() 
+	if symTable[self.sym] then 
+		return symTable[self.sym].val.toString()
+	end
 	return self.sym
 end
 @num_exp_methods+=
 function self.toString() 
-	return self.num
+	return tostring(self.num)
 end
 @fun_exp_methods+=
 function self.toString() 
@@ -1537,14 +1538,12 @@ end
 function self.combinedMatrix()
 	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
 	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
-	print("left " .. m1.toString())
-	print("right " .. m2.toString())
 	if m1.kind == "matexp" and m2.kind == "matexp" then
 		@check_that_matrices_are_same_dimensions
 		@add_matrices_together
 		return MatrixExpression(rows)
 	else
-		return self
+		return AddExpression(m1, m2)
 	end
 end
 
@@ -1573,7 +1572,7 @@ function self.combinedMatrix()
 		@sub_matrices_together
 		return MatrixExpression(rows)
 	else
-		return self
+		return SubExpression(m1, m2)
 	end
 end
 
@@ -1594,7 +1593,7 @@ function self.combinedMatrix()
 		@presub_matrix
 		return MatrixExpression(rows)
 	else
-		return self
+		return PrefixSubExpression(m1)
 	end
 end
 
@@ -1613,8 +1612,12 @@ function self.combinedMatrix()
 	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
 	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
 	@check_that_matrices_are_correct_for_multiplication
-	@multiply_matrices_together
-	return MatrixExpression(rows, #rows, #rows[1])
+	if m1.kind == "matexp" and m2.kind == "matexp" then
+		@multiply_matrices_together
+		return MatrixExpression(rows, #rows, #rows[1])
+	else
+		return MulExpression(m1, m2)
+	end
 end
 
 @check_that_matrices_are_correct_for_multiplication+=
@@ -1697,15 +1700,18 @@ function self.getLeft()
 	return self
 end
 
+@declare_functions+=
+local assign
+
 @assign+=
-local function assign()
-	@get_current_string
+function assign(line)
 	@look_for_assign_symbol
 	@get_left_from_assign_symbol_and_parse
 	local symEntry
 	@if_paren_set_new_function_variable
 	@otherwise_just_regular_variable
 	@get_right_side_of_variable_and_parse
+	@compute_exp_right_side_assignment
 	@assign_exp_in_symbol_table
 end
 
@@ -1767,7 +1773,7 @@ end
 symTable = {}
 
 @assign_exp_in_symbol_table+=
-symEntry.val = exp.expand().combined()
+symEntry.val = exp
 symTable[symEntry.name] = symEntry
 
 @functions+=
@@ -1818,7 +1824,7 @@ function self.substitute()
 end
 @sym_exp_methods+=
 function self.substitute() 
-	if symTable[self.sym] then
+	if symTable[self.sym] and symTable[self.sym].kind == "var" then
 		return symTable[self.sym].val.substitute()
 	end
 	return self
@@ -2009,7 +2015,40 @@ answer = nil
 
 @save_parsed_in_global+=
 answer = exp
+local symEntry = {
+	name = "answer",
+	kind = "var",
+	val = exp
+}
+symTable["answer"] = symEntry
 
 @show_result+=
-local res = exp.combinedMatrix().expand().combined()
-print("show result " .. res.toString())
+local res = exp.substitute().combinedMatrix().expand().combined()
+local line = res.toString()
+vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
+
+@compute_exp_right_side_assignment+=
+exp = exp.substitute().combinedMatrix().expand().combined()
+print(symEntry.name .. " := " .. exp.toString())
+
+@evalulate+=
+function evaluate()
+	@get_current_string
+	@if_has_assignement_sign_do_assignement
+	@otherwise_just_expand_the_expression
+end
+
+@export_symbols+=
+evaluate = evaluate
+
+@get_current_string+=
+local line = vim.api.nvim_get_current_line()
+
+@if_has_assignement_sign_do_assignement+=
+if string.match(line, ":=") then
+	assign(line)
+
+@otherwise_just_expand_the_expression+=
+else
+	expand(line)
+end
