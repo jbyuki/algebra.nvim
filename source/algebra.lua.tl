@@ -19,12 +19,8 @@ return {
 local function expand()
 	@get_current_string
 	@parse_string
-	@print_result
-	@expand_expression
-	@combine_symbols
-	@substitute_test
-	-- @derive_test
-	@test_matrix
+	@save_parsed_in_global
+	@show_result
 	-- @show_latex
 end
 
@@ -424,9 +420,6 @@ function self.prefix()
 	return SymExpression(self.sym)
 end
 
-@print_result+=
-print("parsed: " .. exp.toString())
-
 @add_exp_methods+=
 function self.eval() return self.left.eval() + self.right.eval() end
 @sub_exp_methods+=
@@ -608,9 +601,6 @@ function self.expand()
 	return FunExpression(self.name, t1) 
 end
 
-@expand_expression+=
-local expanded = exp.expand()
-print("expanded : " .. expanded.toString())
 
 @declare_functions+=
 local putParen
@@ -685,10 +675,6 @@ end
 local exp = MulExpression(term1, term2)
 return exp.expand()
 
-@combine_symbols+=
-local combined = expanded.combined()
-table.insert(events, combined.toString())
-print("simplifed " .. combined.toString())
 
 @add_exp_methods-=
 local collectUpperAddCombine
@@ -1268,9 +1254,6 @@ elseif self.name == "sqrt" then
 	local d = DivExpression(t1, p)
 	return d
 
-@derive_test+=
-local derived = combined.derive("x").expand().combined()
-print("derived " .. derived.toString())
 
 @add_exp_methods+=
 function self.priority() 
@@ -1554,6 +1537,8 @@ end
 function self.combinedMatrix()
 	local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
 	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
+	print("left " .. m1.toString())
+	print("right " .. m2.toString())
 	if m1.kind == "matexp" and m2.kind == "matexp" then
 		@check_that_matrices_are_same_dimensions
 		@add_matrices_together
@@ -1629,12 +1614,12 @@ function self.combinedMatrix()
 	local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
 	@check_that_matrices_are_correct_for_multiplication
 	@multiply_matrices_together
-	return MatrixExpression(rows)
+	return MatrixExpression(rows, #rows, #rows[1])
 end
 
 @check_that_matrices_are_correct_for_multiplication+=
 if m1.m ~= m2.n or m1.n ~= m2.m then
-	table.insert(events, "Matrix mul dimensions mismatch")
+	table.insert(events, "Matrix mul dimensions mismatch " .. m1.m .. "x" .. m1.n .. " times " .. m2.m .. "x" .. m2.n)
 	return
 end
 
@@ -1859,10 +1844,6 @@ function self.substitute()
 	return MatrixExpression(rows, self.m, self.n)
 end
 
-@substitute_test+=
-local subst = combined.substitute().expand().combined()
-print("subst " .. subst.toString())
-
 @apply_functions_for_expand+=
 if self.name == "grad" and t1.kind == "symexp" then
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
@@ -1925,7 +1906,6 @@ symTable[newSymEntry.name] = newSymEntry
 
 @apply_functions_for_expand+=
 if self.name == "rot" and t1.kind == "symexp" then
-	print("apply rot to " .. t1.sym)
 	local arg
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 		local symEntry = symTable[t1.sym]
@@ -1947,3 +1927,89 @@ local mat = symEntry.val
 rows[1] = { AddExpression(mat.rows[3][1].derive(args[2]), PrefixSubExpression(mat.rows[2][1].derive(args[3]))) }
 rows[2] = { AddExpression(mat.rows[1][1].derive(args[3]), PrefixSubExpression(mat.rows[3][1].derive(args[1]))) }
 rows[3] = { AddExpression(mat.rows[2][1].derive(args[1]), PrefixSubExpression(mat.rows[1][1].derive(args[2]))) }
+
+@apply_functions_for_expand+=
+if self.name == "laplace" and t1.kind == "symexp" then
+	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
+		local symEntry = symTable[t1.sym]
+		local args = symEntry.args
+		local exp_add
+		assert(symEntry.val.kind ~= "matexp")
+		@apply_laplace
+		@make_function_for_exp_add
+		return SymExpression(newSymEntry.name)
+	end
+end
+
+
+@apply_laplace+=
+for _, arg in ipairs(args) do
+	local t = symEntry.val.derive(arg).derive(arg)
+	exp_add = (exp_add and AddExpression(exp_add, t)) or t
+end
+
+@div_exp_methods+=
+function self.combinedMatrix() 
+	local t1 = self.left.combinedMatrix()
+	local t2 = self.right.combinedMatrix()
+	return DivExpression(t1, t2)
+end
+
+@declare_functions+=
+local isInteger
+
+@functions+=
+function isInteger(x)
+	return math.floor(x) == x
+end
+
+@exp_exp_methods+=
+function self.combinedMatrix() 
+	local t1 = self.left.combinedMatrix()
+	local t2 = self.right.combinedMatrix()
+	if t2.kind == "numexp" and isInteger(t2.num) and  t2.num > 1 then
+		@do_mat_exp
+	elseif t2.kind == "numexp" and t2.num == 1 then
+		return t1
+	end
+	return ExpExpression(t1, t2)
+end
+
+@do_mat_exp+=
+local tomult = MulExpression(t1, ExpExpression(vim.deepcopy(t1), NumExpression(t2.num-1)))
+return tomult.combinedMatrix()
+
+@sym_exp_methods+=
+function self.combinedMatrix() 
+	return SymExpression(self.sym)
+end
+@num_exp_methods+=
+function self.combinedMatrix() 
+	return NumExpression(self.num)
+end
+@fun_exp_methods+=
+function self.combinedMatrix() 
+	return FunExpression(self.name, self.left.combinedMatrix())
+end
+@mat_exp_methods+=
+function self.combinedMatrix() 
+	local rows = {}
+	for i=1,self.m do
+		row = {}
+		for j=1,self.n do
+			table.insert(row, self.rows[i][j].combinedMatrix())
+		end
+		table.insert(rows, row)
+	end
+	return MatrixExpression(rows, self.m, self.n)
+end
+
+@script_variables+=
+answer = nil
+
+@save_parsed_in_global+=
+answer = exp
+
+@show_result+=
+local res = exp.combinedMatrix().expand().combined()
+print("show result " .. res.toString())
