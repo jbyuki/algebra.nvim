@@ -152,7 +152,7 @@ if #tokens > 0 and tokens[#tokens].kind == "num" then
 end
 
 @get_all_char_sym+=
-local parsed = string.match(string.sub(str, i), "%a+")
+local parsed = string.match(string.sub(str, i), "%w+")
 i = i+string.len(parsed)
 
 @declare_functions+=

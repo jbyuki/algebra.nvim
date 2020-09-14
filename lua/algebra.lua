@@ -1479,7 +1479,7 @@ function tokenize(str)
 				table.insert(tokens, MulToken())
 			end
 			
-			local parsed = string.match(string.sub(str, i), "%a+")
+			local parsed = string.match(string.sub(str, i), "%w+")
 			i = i+string.len(parsed)
 			
 			if string.match(parsed, "^" .. nocase("pi") .. "$") then
