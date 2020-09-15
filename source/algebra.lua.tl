@@ -1056,7 +1056,7 @@ end
 elseif combined.kind == "matexp" then
 	table.insert(collectMat, combined)
 
-@combine_mat_if_only_one+=
+@combine_matrix_in_mul+=
 if #collectMat > 0 then
 	local exp_mat
 	@multiply_the_matrices_together
@@ -1088,6 +1088,7 @@ exp_mul = MatrixExpression(rows, exp_mat.m, exp_mat.n)
 function self.combined() 
 	@remove_if_multiply_by_one
 	@remove_if_multiply_by_minus_one
+	@remove_if_multiply_by_zero
 	@combine_terms_upper_mul
 
 	-- print("mul collectAll " .. vim.inspect(collectAll))
@@ -1098,7 +1099,7 @@ function self.combined()
 	@combine_unknown_power
 	@combine_rest_terms
 	@combine_coefficient
-	@combine_mat_if_only_one
+	@combine_matrix_in_mul
 
 	exp_mul = exp_mul or NumExpression(0)
 	
@@ -1111,6 +1112,14 @@ if self.left.kind == "numexp" and self.left.num == 1 then
 end
 if self.right.kind == "numexp" and self.right.num == 1 then
 	return self.left.combined()
+end
+
+@remove_if_multiply_by_zero+=
+if self.left.kind == "numexp" and self.left.num == 0 then
+	return NumExpression(0)
+end
+if self.right.kind == "numexp" and self.right.num == 0 then
+	return NumExpression(0)
 end
 
 @remove_if_multiply_by_minus_one+=

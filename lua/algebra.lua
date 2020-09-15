@@ -715,6 +715,13 @@ function MulExpression(left, right)
 			return (PrefixSubExpression(self.left.combined())).combined()
 		end
 		
+		if self.left.kind == "numexp" and self.left.num == 0 then
+			return NumExpression(0)
+		end
+		if self.right.kind == "numexp" and self.right.num == 0 then
+			return NumExpression(0)
+		end
+		
 		local collectAll = {}
 		local rest = {}
 		local coeff = 1
