@@ -54,26 +54,33 @@ local putParenLatex
 
 local assign
 
+local collectArgs
+
 local isInteger
 
 local function computeDeterminant(rows, n, i, taken, add_exp, mul_exp)
 	if i > n then
 		add_exp = (add_exp and AddExpression(add_exp, mul_exp)) or mul_exp
 	end
+	
 
 	local sign = true
 
 	for j=1,n do
 		if not taken[j] then
 			taken[j] = true
-			local cell = vim.deepcopy(rows[i][j])
+			local cell = rows[i][j].expand()
 			if not sign then 
 				cell = PrefixSubExpression(cell)
 			end
-			local next_mul = (mul_exp and MulExpression(vim.deepcopy(mul_exp), vim.deepcopy(cell))) or vim.deepcopy(cell)
+			
+			local next_mul = (mul_exp and MulExpression(vim.deepcopy(mul_exp), cell)) or cell
+			
 			add_exp = computeDeterminant(rows, n, i+1, taken, add_exp, next_mul)
+			
 			taken[j] = false
 			sign = not sign
+			
 		end
 	end
 	return add_exp
@@ -164,10 +171,10 @@ function AddExpression(left, right)
 			return putParen(self.left, self.priority()) .. "+" .. putParen(self.right, self.priority())
 		end
 	end
-	function collectUpperAddCombine(root, constant, collect, collectPow, rest)
+	function collectUpperAddCombine(root, constant, collect, collectPow, collectMat, rest)
 		if root.kind == "addexp" then
-			constant = collectUpperAddCombine(root.left, constant, collect, collectPow, rest)
-			constant = collectUpperAddCombine(root.right, constant, collect, collectPow, rest)
+			constant = collectUpperAddCombine(root.left, constant, collect, collectPow, collectMat, rest)
+			constant = collectUpperAddCombine(root.right, constant, collect, collectPow, collectMat, rest)
 		else
 			local combined = root.combined()
 			if combined.kind == "presubexp" then
@@ -220,6 +227,17 @@ function AddExpression(left, right)
 						collectPow[powpair] = collectPow[powpair] + factor*num
 						
 					end
+				elseif combined.kind == "matexp" then
+					local rows = {}
+					for i=1,combined.m do
+						local row = {}
+						for j=1,combined.n do
+							table.insert(row, PrefixSubExpression(combined.rows[i][j]).combined())
+						end
+						table.insert(rows, row)
+					end
+					
+					table.insert(collectMat, MatrixExpression(rows, combined.m, combined.n))
 				elseif combined.kind == "numexp" then
 					constant = constant - combined.num
 				else
@@ -277,6 +295,8 @@ function AddExpression(left, right)
 						collectPow[powpair] = collectPow[powpair] + factor*num
 						
 					end
+				elseif combined.kind == "matexp" then
+					table.insert(collectMat, combined)
 				else
 					table.insert(rest, combined)
 				end
@@ -297,6 +317,7 @@ function AddExpression(left, right)
 		local constant = 0
 		local collect = {}
 		local collectPow = {}
+		local collectMat = {}
 		local storeCollectPow = {}
 		collectPow = setmetatable({}, {
 			__newindex = function(tbl, key, val)
@@ -319,8 +340,8 @@ function AddExpression(left, right)
 		
 		local rest = {}
 		
-		constant = collectUpperAddCombine(self.left, constant, collect, collectPow, rest)
-		constant = collectUpperAddCombine(self.right, constant, collect, collectPow, rest)
+		constant = collectUpperAddCombine(self.left, constant, collect, collectPow, collectMat, rest)
+		constant = collectUpperAddCombine(self.right, constant, collect, collectPow, collectMat, rest)
 		
 	
 		-- print("add constant " .. constant)
@@ -369,6 +390,27 @@ function AddExpression(left, right)
 				else
 					exp_add = AddExpression(exp_mul, exp_add)
 				end
+			end
+		end
+		
+		if #collectMat > 0 then
+			if exp_add ~= nil then
+				assert(false, "adding matrix with " .. exp_add.toString())
+			end
+			exp_add = collectMat[1]
+			for i=2,#collectMat do
+				local m1 = exp_add
+				local m2 = collectMat[i]
+				rows = {}
+				for i=1,m1.m do
+					result_row = {}
+					for j=1,m1.n do
+						table.insert(result_row, AddExpression(m1.rows[i][j], m2.rows[i][j]))
+					end
+					table.insert(rows, result_row)
+				end
+				
+				exp_add = MatrixExpression(rows, m2.m, m2.n).combined()
 			end
 		end
 		
@@ -432,6 +474,10 @@ function AddExpression(left, right)
 		local t2 = self.right.substitute()
 		return AddExpression(t1, t2)
 	end
+	function self.collectUnknowns(unknowns) 
+		self.left.collectUnknowns(unknowns)
+		self.right.collectUnknowns(unknowns)
+	end
 return self end
 
 function PrefixSubExpression(left) 
@@ -489,6 +535,9 @@ function PrefixSubExpression(left)
 	function self.substitute() 
 		local t1 = self.left.substitute()
 		return PrefixSubExpression(t1, t2)
+	end
+	function self.collectUnknowns(unknowns) 
+		self.left.collectUnknowns(unknowns)
 	end
 return self end
 
@@ -554,6 +603,10 @@ function SubExpression(left, right)
 		local t1 = self.left.substitute()
 		local t2 = self.right.substitute()
 		return SubExpression(t1, t2)
+	end
+	function self.collectUnknowns(unknowns) 
+		self.left.collectUnknowns(unknowns)
+		self.right.collectUnknowns(unknowns)
 	end
 return self end
 
@@ -806,6 +859,10 @@ function MulExpression(left, right)
 		local t2 = self.right.substitute()
 		return MulExpression(t1, t2)
 	end
+	function self.collectUnknowns(unknowns) 
+		self.left.collectUnknowns(unknowns)
+		self.right.collectUnknowns(unknowns)
+	end
 return self end
 
 function DivExpression(left, right)
@@ -859,6 +916,10 @@ function DivExpression(left, right)
 		local t2 = self.right.substitute()
 		return DivExpression(t1, t2)
 	end
+	function self.collectUnknowns(unknowns) 
+		self.left.collectUnknowns(unknowns)
+		self.right.collectUnknowns(unknowns)
+	end
 	function self.combinedMatrix() 
 		local t1 = self.left.combinedMatrix()
 		local t2 = self.right.combinedMatrix()
@@ -893,6 +954,8 @@ function NumExpression(num)
 	end
 	function self.substitute() 
 		return NumExpression(self.num)
+	end
+	function self.collectUnknowns(unknowns) 
 	end
 	function self.combinedMatrix() 
 		return NumExpression(self.num)
@@ -936,6 +999,11 @@ function SymExpression(sym)
 		end
 		return self
 	end
+	function self.collectUnknowns(unknowns) 
+		if not symTable[self.sym] then
+			unknowns[self.sym] = true
+		end
+	end
 	function self.combinedMatrix() 
 		return SymExpression(self.sym)
 	end
@@ -974,120 +1042,160 @@ function FunExpression(name, args)
 		end
 		
 		
-		if self.name == "grad" and #fargs == 1 and fargs[1].kind == "symexp" then
+		if self.name == "grad" then
+			assert(#fargs == 1, "grad expects 1 argument found " .. #fargs)
+		
 			local t1 = fargs[1]
-			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-				local symEntry = symTable[t1.sym]
-				local args = symEntry.args
-				assert(symEntry.val.kind ~= "matexp", "grad() expected matrix")
-				local rows = {}
-				for _, arg in ipairs(args) do
-					table.insert(rows, { symEntry.val.derive(arg) })
-				end
-				
-				local newSymEntry = {
-					name = answerIndex,
-					kind = "fun",
-					args = args,
-					val = MatrixExpression(rows, #args, 1).expand().combined()
-				}
-				answerIndex = answerIndex + 1
-				symTable[newSymEntry.name] = newSymEntry
-				
-				return SymExpression(newSymEntry.name)
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
 			end
+		
+			local args = {"x", "y", "z"}
+			local rows = {}
+			for _,arg in ipairs(args) do
+				table.insert(rows, { t1.derive(arg) })
+			end
+			
+			return MatrixExpression(rows, #args, 1).expand().combined()
 		end
 		
-		if self.name == "div" and #fargs == 1 and fargs[1].kind == "symexp" then
+		if self.name == "div" then
+			assert(#fargs == 1, "div expects 1 argument found " .. #fargs)
+		
 			local t1 = fargs[1]
-			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-				local symEntry = symTable[t1.sym]
-				local args = symEntry.args
-				local exp_add
-				assert(symEntry.val.kind ~= "matexp", "div() expected matrix")
-				for _, arg in ipairs(args) do
-					local t = symEntry.val.derive(arg)
-					exp_add = (exp_add and AddExpression(exp_add, t)) or t
-				end
-				
-				local newSymEntry = {
-					name = answerIndex,
-					kind = "fun",
-					args = args,
-					val = exp_add.expand().combined()
-				}
-				answerIndex = answerIndex + 1
-				symTable[newSymEntry.name] = newSymEntry
-				
-				return SymExpression(newSymEntry.name)
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
 			end
+		
+			assert(t1.kind == "matexp", "div expects matexp, found " .. t1.kind)
+			assert(#t1.rows, "#rows must be 3, found " .. #t1.rows)
+		
+			local exp_add
+			local args = {"x", "y", "z"}
+			for _, arg in ipairs(args) do
+				local t = t1.derive(arg)
+				exp_add = (exp_add and AddExpression(exp_add, t)) or t
+			end
+			
+			return exp_add.expand().combined()
 		end
 		
-		if self.name == "rot" and #fargs == 1 and fargs[1].kind == "symexp" then
+		if self.name == "rot" then
+			assert(#fargs == 1, "rot expects 1 argument found " .. #fargs)
+		
 			local t1 = fargs[1]
-			local arg
-			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-				local symEntry = symTable[t1.sym]
-				local args = symEntry.args
-		
-				assert(symEntry.val.kind == "matexp", "rot() expected matrix")
-				assert(symEntry.val.m == 3 and symEntry.val.n == 1, "rot() expected matrix dimension 3x1, found: " .. symEntry.val.m .. "x" .. symEntry.val.n)
-		
-				local rows = {}
-				rows = {}
-				local mat = symEntry.val
-				rows[1] = { AddExpression(mat.rows[3][1].derive(args[2]), PrefixSubExpression(mat.rows[2][1].derive(args[3]))) }
-				rows[2] = { AddExpression(mat.rows[1][1].derive(args[3]), PrefixSubExpression(mat.rows[3][1].derive(args[1]))) }
-				rows[3] = { AddExpression(mat.rows[2][1].derive(args[1]), PrefixSubExpression(mat.rows[1][1].derive(args[2]))) }
-				
-				local newSymEntry = {
-					name = answerIndex,
-					kind = "fun",
-					args = args,
-					val = MatrixExpression(rows, #args, 1).expand().combined()
-				}
-				answerIndex = answerIndex + 1
-				symTable[newSymEntry.name] = newSymEntry
-				
-				return SymExpression(newSymEntry.name)
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
 			end
+		
+			assert(t1.kind == "matexp", "rot expects matexp argument found " .. t1.kind)
+			local args = collectArgs(t1)
+			
+			assert(#t1.rows == 3, "rot expects 3 rows found " .. #t1.rows)
+		
+			local rows = {}
+			local args = {"x", "y", "z"}
+			rows = {}
+			rows[1] = { AddExpression(t1.rows[3][1].derive(args[2]), PrefixSubExpression(t1.rows[2][1].derive(args[3]))) }
+			rows[2] = { AddExpression(t1.rows[1][1].derive(args[3]), PrefixSubExpression(t1.rows[3][1].derive(args[1]))) }
+			rows[3] = { AddExpression(t1.rows[2][1].derive(args[1]), PrefixSubExpression(t1.rows[1][1].derive(args[2]))) }
+			
+			return MatrixExpression(rows, 3, 1)
 		end
 		
-		if self.name == "laplace" and #fargs == 1 and fargs[1].kind == "symexp" then
+		if self.name == "laplace" then
+			assert(#fargs == 1, "rot expects 1 argument found " .. #fargs)
+		
 			local t1 = fargs[1]
-			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-				local symEntry = symTable[t1.sym]
-				local args = symEntry.args
-				local exp_add
-				assert(symEntry.val.kind ~= "matexp", "laplace() expected matrix")
-				for _, arg in ipairs(args) do
-					local t = symEntry.val.derive(arg).derive(arg)
-					exp_add = (exp_add and AddExpression(exp_add, t)) or t
-				end
-				
-				local newSymEntry = {
-					name = answerIndex,
-					kind = "fun",
-					args = args,
-					val = exp_add.expand().combined()
-				}
-				answerIndex = answerIndex + 1
-				symTable[newSymEntry.name] = newSymEntry
-				
-				return SymExpression(newSymEntry.name)
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
 			end
+		
+			local args = collectArgs(t1)
+			
+			local exp_add
+			for _, arg in ipairs(args) do
+				local t = it.derive(arg).derive(arg)
+				exp_add = (exp_add and AddExpression(exp_add, t)) or t
+			end
+			
+			return exp_add
 		end
 		
 		
 		if self.name == "det" then
-			local exp_add
-			assert(#fargs == 1, "det() expected 1 argument")
+			assert(#fargs == 1, "det() expects 1 argument found " .. #fargs)
+		
 			local t1 = fargs[1]
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
+			end
+		
 			assert(t1.kind == "matexp", "det() expected matrix, found " .. t1.kind)
-			assert(t1.n == t1.m, "det() expected square matrix")
+			assert(t1.n == t1.m, "det() expected square matrix found " .. t1.m .. "x" .. t1.n)
+		
 			local taken = {}
 			add_exp = computeDeterminant(t1.rows, t1.n, 1, taken)
+			
 			return add_exp
+		end
+		
+		if self.name == "transpose" or self.name == "T" then
+			assert(#fargs == 1, self.name .. "() expected 1 argument found " .. #fargs)
+			local t1 = fargs[1]
+			assert(t1.kind == "matexp", self.name .. "() expected matrix, found " .. t1.kind)
+			local rows = {}
+			for j=1,t1.n do 
+				rows[j] = {}
+				for i=1,t1.m do 
+					rows[j][i] = t1.rows[i][j].expand()
+				end
+			end
+			
+			return MatrixExpression(rows, t1.n, t1.m)
+		end
+		
+		if self.name == "dot" then
+			assert(#fargs == 2, self.name .. "() expected 2 arguments found " .. #fargs)
+			local t1 = fargs[1]
+			local t2 = fargs[2]
+		
+			assert(t1.kind == "matexp", self.name .. "() first argument expected matrix, found " .. t1.kind)
+			assert(t2.kind == "matexp", self.name .. "() second argument expected matrix, found " .. t2.kind)
+			assert(t1.n == 1, self.name .. "() first argument expected 1 column, found " .. t1.n)
+			assert(t2.n == 1, self.name .. "() second argument expected 1 column, found " .. t2.n)
+			assert(t1.m == t2.m, self.name .. "() first and second argument expected same column number, found first " .. t1.m .. " and second " .. t2.m)
+			local add_exp
+			for i=1,t1.m do
+				local term = MulExpression(t1.rows[i][1], t2.rows[i][1])
+				add_exp = (add_exp and AddExpression(add_exp, term)) or term
+			end
+			add_exp = add_exp.expand()
+			
+			return add_exp
+		end
+		
+		if self.name == "cross" then
+			assert(#fargs == 2, self.name .. "() expected 2 arguments found " .. #fargs)
+			local t1 = fargs[1]
+			local t2 = fargs[2]
+		
+			assert(t1.kind == "matexp", self.name .. "() first argument expected matrix, found " .. t1.kind)
+			assert(t2.kind == "matexp", self.name .. "() second argument expected matrix, found " .. t2.kind)
+			assert(t1.n == 1, self.name .. "() first argument expected 1 column, found " .. t1.n)
+			assert(t2.n == 1, self.name .. "() second argument expected 1 column, found " .. t2.n)
+			assert(t1.m == 3, self.name .. "() first argument expected 3 column, found " .. t1.m)
+			assert(t2.m == 3, self.name .. "() first argument expected 3 column, found " .. t2.m)
+			local rows = {}
+			rows[1] = { AddExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[3][1].expand()), PrefixSubExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[2][1].expand()))) }
+			rows[2] = { AddExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[1][1].expand()), PrefixSubExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[3][1].expand()))) }
+			rows[3] = { AddExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[2][1].expand()), PrefixSubExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[1][1].expand()))) }
+			return MatrixExpression(rows, 3, 1)
 		end
 		
 		return FunExpression(self.name, fargs) 
@@ -1176,6 +1284,11 @@ function FunExpression(name, args)
 		end
 		return FunExpression(self.name, fargs)
 	end
+	function self.collectUnknowns(unknowns) 
+		for _,arg in ipairs(self.args) do
+			arg.collectUnknowns(unknowns)
+		end
+	end
 	function self.combinedMatrix() 
 		local fargs = {}
 		for _,arg in ipairs(self.args) do
@@ -1254,6 +1367,10 @@ function ExpExpression(left, right)
 		local t1 = self.left.substitute()
 		local t2 = self.right.substitute()
 		return ExpExpression(t1, t2)
+	end
+	function self.collectUnknowns(unknowns) 
+		self.left.collectUnknowns(unknowns)
+		self.right.collectUnknowns(unknowns)
 	end
 	function self.combinedMatrix() 
 		local t1 = self.left.combinedMatrix()
@@ -1350,6 +1467,15 @@ function MatrixExpression(rows, m, n)
 		return MatrixExpression(rows, self.m, self.n)
 	end
 	
+	
+	function self.collectUnknowns(unknowns) 
+		for i=1,self.m do
+			for j=1,self.n do
+				self.rows[i][j].collectUnknowns(unknowns)
+			end
+		end
+	end
+	
 	function self.combinedMatrix() 
 		local rows = {}
 		for i=1,self.m do
@@ -1360,6 +1486,18 @@ function MatrixExpression(rows, m, n)
 			table.insert(rows, row)
 		end
 		return MatrixExpression(rows, self.m, self.n)
+	end
+	
+	function self.eval(env)
+		local new_rows = {}
+		for _,row in ipairs(self.rows) do
+			local new_cells = {}
+			for _,cell in ipairs(row) do
+				table.insert(new_cells, cell.eval(env))
+			end
+			table.insert(new_rows, new_cells)
+		end
+		return MatrixExpression(new_rows, self.m, self.n)
 	end
 	
 return self end
@@ -1587,12 +1725,12 @@ function tokenize(str)
 			i = i+string.len(parsed)
 			table.insert(tokens, NumToken(tonumber(parsed))) 
 		
-		elseif string.match(c, "%a") then
+		elseif string.match(c, "[%a_]") then
 			if #tokens > 0 and tokens[#tokens].kind == "num" then
 				table.insert(tokens, MulToken())
 			end
 			
-			local parsed = string.match(string.sub(str, i), "%w+")
+			local parsed = string.match(string.sub(str, i), "[%w_]+")
 			i = i+string.len(parsed)
 			
 			if string.match(parsed, "^" .. nocase("pi") .. "$") then
@@ -1708,6 +1846,18 @@ local function printSymTable()
 	end
 end
 
+function collectArgs(exp)
+	local unknowns = {}
+	exp.collectUnknowns(unknowns)
+
+	local args = {}
+	for arg,_ in pairs(unknowns) do
+		table.insert(args, arg)
+	end
+	table.sort(args)
+	return args
+end
+
 function isInteger(x)
 	return math.floor(x) == x
 end
@@ -1751,37 +1901,9 @@ function assign(line)
 	tokenize(left)
 	
 	local symEntry
-	if string.find(left, "%(") then
-		assert(#tokens > 2, "function symbol expected tokens")
-		assert(tokens[1].kind == "sym", "function argument expected symbol")
-		local name = tokens[1].sym
-		local args = {}
-		assert(tokens[2].kind == "lpar", "function symbol expected left parenthesis")
-		i = 2
-		while tokens[i] and tokens[i].kind ~= "rpar" do
-			i = i + 1
-			assert(tokens[i] and tokens[i].kind == "sym", "function argument expected symbol")
-			table.insert(args, tokens[i].sym)
-			i = i + 1
-		end
-		
-		symEntry = {
-			name = name,
-			kind = "fun",
-			args = args
-		}
-		
-	
-	else
-		assert(#tokens == 1, "variable name expected token")
-		assert(tokens[1].kind == "sym", "variable name expected symbol")
-		local name = tokens[1].sym
-	
-		symEntry = {
-			name = name,
-			kind = "var",
-		}
-	end
+	assert(#tokens == 1, "variable name expected token")
+	assert(tokens[1].kind == "sym", "variable name expected symbol")
+	local name = tokens[1].sym
 	
 	local right = string.sub(line, i2+1)
 	local exp = parseAll(right)
@@ -1790,10 +1912,9 @@ function assign(line)
 	end
 	
 	exp = exp.substitute().expand().combined()
-	print(symEntry.name .. " := " .. exp.toString())
+	print(name .. " := " .. exp.toString())
 	
-	symEntry.val = exp
-	symTable[symEntry.name] = symEntry
+	symTable[name] = exp
 	
 end
 

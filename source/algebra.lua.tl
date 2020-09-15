@@ -141,7 +141,7 @@ local function SymToken(sym) local self = { kind = "sym", sym = sym }
 return self end
 
 @tokenize_symbol+=
-elseif string.match(c, "%a") then
+elseif string.match(c, "[%a_]") then
 	@add_mul_token_if_num_just_before
 	@get_all_char_sym
 	@create_num_token_if_constant
@@ -153,7 +153,7 @@ if #tokens > 0 and tokens[#tokens].kind == "num" then
 end
 
 @get_all_char_sym+=
-local parsed = string.match(string.sub(str, i), "%w+")
+local parsed = string.match(string.sub(str, i), "[%w_]+")
 i = i+string.len(parsed)
 
 @declare_functions+=
@@ -737,10 +737,10 @@ return exp.expand()
 local collectUpperAddCombine
 
 @add_exp_methods+=
-function collectUpperAddCombine(root, constant, collect, collectPow, rest)
+function collectUpperAddCombine(root, constant, collect, collectPow, collectMat, rest)
 	if root.kind == "addexp" then
-		constant = collectUpperAddCombine(root.left, constant, collect, collectPow, rest)
-		constant = collectUpperAddCombine(root.right, constant, collect, collectPow, rest)
+		constant = collectUpperAddCombine(root.left, constant, collect, collectPow, collectMat, rest)
+		constant = collectUpperAddCombine(root.right, constant, collect, collectPow, collectMat, rest)
 	else
 		local combined = root.combined()
 		if combined.kind == "presubexp" then
@@ -775,10 +775,23 @@ elseif combined.kind == "mulexp" and combined.right.kind == "expexp" and combine
 		local sym, pow, num = combined.right.left.sym, combined.right.right.num, combined.left.num
 		@combine_add_mul_exp_exp
 	end
+elseif combined.kind == "matexp" then
+	@invert_all_matrix_terms
+	table.insert(collectMat, MatrixExpression(rows, combined.m, combined.n))
 elseif combined.kind == "numexp" then
 	constant = constant - combined.num
 else
 	table.insert(rest, PrefixSubExpression(combined))
+end
+
+@invert_all_matrix_terms+=
+local rows = {}
+for i=1,combined.m do
+	local row = {}
+	for j=1,combined.n do
+		table.insert(row, PrefixSubExpression(combined.rows[i][j]).combined())
+	end
+	table.insert(rows, row)
 end
 
 @combine_add_sym_exp+=
@@ -831,6 +844,8 @@ elseif combined.kind == "mulexp" and combined.right.kind == "expexp" and combine
 		local sym, pow, num = combined.right.left.sym, combined.right.right.num, combined.left.num
 		@combine_add_mul_exp_exp
 	end
+elseif combined.kind == "matexp" then
+	table.insert(collectMat, combined)
 else
 	table.insert(rest, combined)
 end
@@ -850,6 +865,7 @@ function self.combined()
 	@combine_constant_if_there_is_one
 	@combine_simple_terms_in_add
 	@combine_pow_terms_in_add
+	@combine_mat_terms_in_add
 	@combine_rest_terms_in_add
 
 	exp_add = exp_add or NumExpression(0)
@@ -868,11 +884,12 @@ end
 local constant = 0
 local collect = {}
 local collectPow = {}
+local collectMat = {}
 @make_collect_pow_table_access
 local rest = {}
 
-constant = collectUpperAddCombine(self.left, constant, collect, collectPow, rest)
-constant = collectUpperAddCombine(self.right, constant, collect, collectPow, rest)
+constant = collectUpperAddCombine(self.left, constant, collect, collectPow, collectMat, rest)
+constant = collectUpperAddCombine(self.right, constant, collect, collectPow, collectMat, rest)
 
 @make_collect_pow_table_access+=
 local storeCollectPow = {}
@@ -937,6 +954,20 @@ for pow, num in pairs(storeCollectPow) do
 		else
 			exp_add = AddExpression(exp_mul, exp_add)
 		end
+	end
+end
+
+@combine_mat_terms_in_add+=
+if #collectMat > 0 then
+	if exp_add ~= nil then
+		assert(false, "adding matrix with " .. exp_add.toString())
+	end
+	exp_add = collectMat[1]
+	for i=2,#collectMat do
+		local m1 = exp_add
+		local m2 = collectMat[i]
+		@add_matrices_together
+		exp_add = MatrixExpression(rows, m2.m, m2.n).combined()
 	end
 end
 
@@ -1785,8 +1816,7 @@ function assign(line)
 	@look_for_assign_symbol
 	@get_left_from_assign_symbol_and_parse
 	local symEntry
-	@if_paren_set_new_function_variable
-	@otherwise_just_regular_variable
+	@parse_variable_name
 	@get_right_side_of_variable_and_parse
 	@compute_exp_right_side_assignment
 	@assign_exp_in_symbol_table
@@ -1800,41 +1830,10 @@ assert(i1, "expected :=")
 local left = string.sub(line, 1, i1-1)
 tokenize(left)
 
-@if_paren_set_new_function_variable+=
-if string.find(left, "%(") then
-	@parse_function_name_and_arguments
-
-@parse_function_name_and_arguments+=
-assert(#tokens > 2, "function symbol expected tokens")
-assert(tokens[1].kind == "sym", "function argument expected symbol")
+@parse_variable_name+=
+assert(#tokens == 1, "variable name expected token")
+assert(tokens[1].kind == "sym", "variable name expected symbol")
 local name = tokens[1].sym
-local args = {}
-assert(tokens[2].kind == "lpar", "function symbol expected left parenthesis")
-i = 2
-while tokens[i] and tokens[i].kind ~= "rpar" do
-	i = i + 1
-	assert(tokens[i] and tokens[i].kind == "sym", "function argument expected symbol")
-	table.insert(args, tokens[i].sym)
-	i = i + 1
-end
-
-symEntry = {
-	name = name,
-	kind = "fun",
-	args = args
-}
-
-@otherwise_just_regular_variable+=
-else
-	assert(#tokens == 1, "variable name expected token")
-	assert(tokens[1].kind == "sym", "variable name expected symbol")
-	local name = tokens[1].sym
-
-	symEntry = {
-		name = name,
-		kind = "var",
-	}
-end
 
 @get_right_side_of_variable_and_parse+=
 local right = string.sub(line, i2+1)
@@ -1847,8 +1846,7 @@ end
 symTable = {}
 
 @assign_exp_in_symbol_table+=
-symEntry.val = exp
-symTable[symEntry.name] = symEntry
+symTable[name] = exp
 
 @functions+=
 local function printSymTable()
@@ -1928,111 +1926,174 @@ function self.substitute()
 	return MatrixExpression(rows, self.m, self.n)
 end
 
+
 @apply_functions_for_expand+=
-if self.name == "grad" and #fargs == 1 and fargs[1].kind == "symexp" then
+if self.name == "grad" then
+	assert(#fargs == 1, "grad expects 1 argument found " .. #fargs)
+
 	local t1 = fargs[1]
-	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-		local symEntry = symTable[t1.sym]
-		local args = symEntry.args
-		assert(symEntry.val.kind ~= "matexp", "grad() expected matrix")
-		@apply_grad
-		@make_function_for_matrix
-		return SymExpression(newSymEntry.name)
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
+	end
+
+	local args = {"x", "y", "z"}
+	@apply_grad
+	return MatrixExpression(rows, #args, 1).expand().combined()
+end
+
+@declare_functions+=
+local collectArgs
+
+@functions+=
+function collectArgs(exp)
+	local unknowns = {}
+	exp.collectUnknowns(unknowns)
+
+	local args = {}
+	for arg,_ in pairs(unknowns) do
+		table.insert(args, arg)
+	end
+	table.sort(args)
+	return args
+end
+
+@collect_arg_list+=
+local args = collectArgs(t1)
+
+@add_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	self.left.collectUnknowns(unknowns)
+	self.right.collectUnknowns(unknowns)
+end
+@sub_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	self.left.collectUnknowns(unknowns)
+	self.right.collectUnknowns(unknowns)
+end
+@presub_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	self.left.collectUnknowns(unknowns)
+end
+@mul_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	self.left.collectUnknowns(unknowns)
+	self.right.collectUnknowns(unknowns)
+end
+@div_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	self.left.collectUnknowns(unknowns)
+	self.right.collectUnknowns(unknowns)
+end
+@exp_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	self.left.collectUnknowns(unknowns)
+	self.right.collectUnknowns(unknowns)
+end
+@sym_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	if not symTable[self.sym] then
+		unknowns[self.sym] = true
+	end
+end
+@num_exp_methods+=
+function self.collectUnknowns(unknowns) 
+end
+@fun_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	for _,arg in ipairs(self.args) do
+		arg.collectUnknowns(unknowns)
+	end
+end
+@mat_exp_methods+=
+function self.collectUnknowns(unknowns) 
+	for i=1,self.m do
+		for j=1,self.n do
+			self.rows[i][j].collectUnknowns(unknowns)
+		end
 	end
 end
 
 @apply_grad+=
 local rows = {}
-for _, arg in ipairs(args) do
-	table.insert(rows, { symEntry.val.derive(arg) })
+for _,arg in ipairs(args) do
+	table.insert(rows, { t1.derive(arg) })
 end
 
 @script_variables+=
 local answerIndex = 1
 
-@make_function_for_matrix+=
-local newSymEntry = {
-	name = answerIndex,
-	kind = "fun",
-	args = args,
-	val = MatrixExpression(rows, #args, 1).expand().combined()
-}
-answerIndex = answerIndex + 1
-symTable[newSymEntry.name] = newSymEntry
-
 @apply_functions_for_expand+=
-if self.name == "div" and #fargs == 1 and fargs[1].kind == "symexp" then
+if self.name == "div" then
+	assert(#fargs == 1, "div expects 1 argument found " .. #fargs)
+
 	local t1 = fargs[1]
-	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-		local symEntry = symTable[t1.sym]
-		local args = symEntry.args
-		local exp_add
-		assert(symEntry.val.kind ~= "matexp", "div() expected matrix")
-		@apply_div
-		@make_function_for_exp_add
-		return SymExpression(newSymEntry.name)
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
 	end
+
+	assert(t1.kind == "matexp", "div expects matexp, found " .. t1.kind)
+	assert(#t1.rows, "#rows must be 3, found " .. #t1.rows)
+
+	local exp_add
+	local args = {"x", "y", "z"}
+	@apply_div
+	return exp_add.expand().combined()
 end
 
 @apply_div+=
 for _, arg in ipairs(args) do
-	local t = symEntry.val.derive(arg)
+	local t = t1.derive(arg)
 	exp_add = (exp_add and AddExpression(exp_add, t)) or t
 end
 
-@make_function_for_exp_add+=
-local newSymEntry = {
-	name = answerIndex,
-	kind = "fun",
-	args = args,
-	val = exp_add.expand().combined()
-}
-answerIndex = answerIndex + 1
-symTable[newSymEntry.name] = newSymEntry
-
 @apply_functions_for_expand+=
-if self.name == "rot" and #fargs == 1 and fargs[1].kind == "symexp" then
+if self.name == "rot" then
+	assert(#fargs == 1, "rot expects 1 argument found " .. #fargs)
+
 	local t1 = fargs[1]
-	local arg
-	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-		local symEntry = symTable[t1.sym]
-		local args = symEntry.args
-
-		assert(symEntry.val.kind == "matexp", "rot() expected matrix")
-		assert(symEntry.val.m == 3 and symEntry.val.n == 1, "rot() expected matrix dimension 3x1, found: " .. symEntry.val.m .. "x" .. symEntry.val.n)
-
-		local rows = {}
-		@apply_rot
-		@make_function_for_matrix
-		return SymExpression(newSymEntry.name)
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
 	end
+
+	assert(t1.kind == "matexp", "rot expects matexp argument found " .. t1.kind)
+	@collect_arg_list
+	assert(#t1.rows == 3, "rot expects 3 rows found " .. #t1.rows)
+
+	local rows = {}
+	local args = {"x", "y", "z"}
+	@apply_rot
+	return MatrixExpression(rows, 3, 1)
 end
 
 @apply_rot+=
 rows = {}
-local mat = symEntry.val
-rows[1] = { AddExpression(mat.rows[3][1].derive(args[2]), PrefixSubExpression(mat.rows[2][1].derive(args[3]))) }
-rows[2] = { AddExpression(mat.rows[1][1].derive(args[3]), PrefixSubExpression(mat.rows[3][1].derive(args[1]))) }
-rows[3] = { AddExpression(mat.rows[2][1].derive(args[1]), PrefixSubExpression(mat.rows[1][1].derive(args[2]))) }
+rows[1] = { AddExpression(t1.rows[3][1].derive(args[2]), PrefixSubExpression(t1.rows[2][1].derive(args[3]))) }
+rows[2] = { AddExpression(t1.rows[1][1].derive(args[3]), PrefixSubExpression(t1.rows[3][1].derive(args[1]))) }
+rows[3] = { AddExpression(t1.rows[2][1].derive(args[1]), PrefixSubExpression(t1.rows[1][1].derive(args[2]))) }
 
 @apply_functions_for_expand+=
-if self.name == "laplace" and #fargs == 1 and fargs[1].kind == "symexp" then
+if self.name == "laplace" then
+	assert(#fargs == 1, "rot expects 1 argument found " .. #fargs)
+
 	local t1 = fargs[1]
-	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
-		local symEntry = symTable[t1.sym]
-		local args = symEntry.args
-		local exp_add
-		assert(symEntry.val.kind ~= "matexp", "laplace() expected matrix")
-		@apply_laplace
-		@make_function_for_exp_add
-		return SymExpression(newSymEntry.name)
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
 	end
+
+	@collect_arg_list
+	local exp_add
+	@apply_laplace
+	return exp_add
 end
 
 
 @apply_laplace+=
 for _, arg in ipairs(args) do
-	local t = symEntry.val.derive(arg).derive(arg)
+	local t = it.derive(arg).derive(arg)
 	exp_add = (exp_add and AddExpression(exp_add, t)) or t
 end
 
@@ -2115,7 +2176,7 @@ vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
 
 @compute_exp_right_side_assignment+=
 exp = exp.substitute().expand().combined()
-print(symEntry.name .. " := " .. exp.toString())
+print(name .. " := " .. exp.toString())
 
 @simplify+=
 function simplify()
@@ -2184,39 +2245,136 @@ vim.api.nvim_command("!start out.pdf")
 
 @apply_functions_for_expand+=
 if self.name == "det" then
-	local exp_add
-	assert(#fargs == 1, "det() expected 1 argument")
+	assert(#fargs == 1, "det() expects 1 argument found " .. #fargs)
+
 	local t1 = fargs[1]
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
+	end
+
 	assert(t1.kind == "matexp", "det() expected matrix, found " .. t1.kind)
-	assert(t1.n == t1.m, "det() expected square matrix")
+	assert(t1.n == t1.m, "det() expected square matrix found " .. t1.m .. "x" .. t1.n)
+
 	@compute_matrix_determinant
 	return add_exp
 end
 
 @declare_functions+=
 local function computeDeterminant(rows, n, i, taken, add_exp, mul_exp)
-	if i > n then
-		add_exp = (add_exp and AddExpression(add_exp, mul_exp)) or mul_exp
-	end
+	@if_past_last_row_add_result
 
 	local sign = true
 
 	for j=1,n do
 		if not taken[j] then
 			taken[j] = true
-			local cell = vim.deepcopy(rows[i][j])
-			if not sign then 
-				cell = PrefixSubExpression(cell)
-			end
-			local next_mul = (mul_exp and MulExpression(vim.deepcopy(mul_exp), vim.deepcopy(cell))) or vim.deepcopy(cell)
-			add_exp = computeDeterminant(rows, n, i+1, taken, add_exp, next_mul)
+			@get_cell_from_matrix_with_correct_sign
+			@multiply_cell_value_to_current_mul_exp
+			@recursively_compute_determinant
 			taken[j] = false
-			sign = not sign
+			@inverse_sign
 		end
 	end
 	return add_exp
 end
 
+@if_past_last_row_add_result+=
+if i > n then
+	add_exp = (add_exp and AddExpression(add_exp, mul_exp)) or mul_exp
+end
+
+@get_cell_from_matrix_with_correct_sign+=
+local cell = rows[i][j].expand()
+if not sign then 
+	cell = PrefixSubExpression(cell)
+end
+
+@multiply_cell_value_to_current_mul_exp+=
+local next_mul = (mul_exp and MulExpression(vim.deepcopy(mul_exp), cell)) or cell
+
+@recursively_compute_determinant+=
+add_exp = computeDeterminant(rows, n, i+1, taken, add_exp, next_mul)
+
+@inverse_sign+=
+sign = not sign
+
 @compute_matrix_determinant+=
 local taken = {}
 add_exp = computeDeterminant(t1.rows, t1.n, 1, taken)
+
+@mat_exp_methods+=
+function self.eval(env)
+	local new_rows = {}
+	for _,row in ipairs(self.rows) do
+		local new_cells = {}
+		for _,cell in ipairs(row) do
+			table.insert(new_cells, cell.eval(env))
+		end
+		table.insert(new_rows, new_cells)
+	end
+	return MatrixExpression(new_rows, self.m, self.n)
+end
+
+@apply_functions_for_expand+=
+if self.name == "transpose" or self.name == "T" then
+	assert(#fargs == 1, self.name .. "() expected 1 argument found " .. #fargs)
+	local t1 = fargs[1]
+	assert(t1.kind == "matexp", self.name .. "() expected matrix, found " .. t1.kind)
+	@transpose_matrix
+	return MatrixExpression(rows, t1.n, t1.m)
+end
+
+@transpose_matrix+=
+local rows = {}
+for j=1,t1.n do 
+	rows[j] = {}
+	for i=1,t1.m do 
+		rows[j][i] = t1.rows[i][j].expand()
+	end
+end
+
+@apply_functions_for_expand+=
+if self.name == "dot" then
+	assert(#fargs == 2, self.name .. "() expected 2 arguments found " .. #fargs)
+	local t1 = fargs[1]
+	local t2 = fargs[2]
+
+	assert(t1.kind == "matexp", self.name .. "() first argument expected matrix, found " .. t1.kind)
+	assert(t2.kind == "matexp", self.name .. "() second argument expected matrix, found " .. t2.kind)
+	assert(t1.n == 1, self.name .. "() first argument expected 1 column, found " .. t1.n)
+	assert(t2.n == 1, self.name .. "() second argument expected 1 column, found " .. t2.n)
+	assert(t1.m == t2.m, self.name .. "() first and second argument expected same column number, found first " .. t1.m .. " and second " .. t2.m)
+	@dot_vectors
+	return add_exp
+end
+
+@dot_vectors+=
+local add_exp
+for i=1,t1.m do
+	local term = MulExpression(t1.rows[i][1], t2.rows[i][1])
+	add_exp = (add_exp and AddExpression(add_exp, term)) or term
+end
+add_exp = add_exp.expand()
+
+@apply_functions_for_expand+=
+if self.name == "cross" then
+	assert(#fargs == 2, self.name .. "() expected 2 arguments found " .. #fargs)
+	local t1 = fargs[1]
+	local t2 = fargs[2]
+
+	assert(t1.kind == "matexp", self.name .. "() first argument expected matrix, found " .. t1.kind)
+	assert(t2.kind == "matexp", self.name .. "() second argument expected matrix, found " .. t2.kind)
+	assert(t1.n == 1, self.name .. "() first argument expected 1 column, found " .. t1.n)
+	assert(t2.n == 1, self.name .. "() second argument expected 1 column, found " .. t2.n)
+	assert(t1.m == 3, self.name .. "() first argument expected 3 column, found " .. t1.m)
+	assert(t2.m == 3, self.name .. "() first argument expected 3 column, found " .. t2.m)
+	@cross_vectors
+	return MatrixExpression(rows, 3, 1)
+end
+
+@cross_vectors+=
+local rows = {}
+rows[1] = { AddExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[3][1].expand()), PrefixSubExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[2][1].expand()))) }
+rows[2] = { AddExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[1][1].expand()), PrefixSubExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[3][1].expand()))) }
+rows[3] = { AddExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[2][1].expand()), PrefixSubExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[1][1].expand()))) }
