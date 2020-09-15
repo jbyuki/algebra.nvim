@@ -56,6 +56,29 @@ local assign
 
 local isInteger
 
+local function computeDeterminant(rows, n, i, taken, add_exp, mul_exp)
+	if i > n then
+		add_exp = (add_exp and AddExpression(add_exp, mul_exp)) or mul_exp
+	end
+
+	local sign = true
+
+	for j=1,n do
+		if not taken[j] then
+			taken[j] = true
+			local cell = vim.deepcopy(rows[i][j])
+			if not sign then 
+				cell = PrefixSubExpression(cell)
+			end
+			local next_mul = (mul_exp and MulExpression(vim.deepcopy(mul_exp), vim.deepcopy(cell))) or vim.deepcopy(cell)
+			add_exp = computeDeterminant(rows, n, i+1, taken, add_exp, next_mul)
+			taken[j] = false
+			sign = not sign
+		end
+	end
+	return add_exp
+end
+
 tokens = {}
 
 events = {}
@@ -1056,6 +1079,17 @@ function FunExpression(name, args)
 		end
 		
 		
+		if self.name == "det" then
+			local exp_add
+			assert(#fargs == 1, "det() expected 1 argument")
+			local t1 = fargs[1]
+			assert(t1.kind == "matexp", "det() expected matrix, found " .. t1.kind)
+			assert(t1.n == t1.m, "det() expected square matrix")
+			local taken = {}
+			add_exp = computeDeterminant(t1.rows, t1.n, 1, taken)
+			return add_exp
+		end
+		
 		return FunExpression(self.name, fargs) 
 	end
 	
@@ -1812,6 +1846,7 @@ local function show_latex()
 	f:close()
 	vim.api.nvim_command("!pandoc out.tex -o out.pdf")
 	vim.api.nvim_command("!start out.pdf")
+	
 end
 
 
