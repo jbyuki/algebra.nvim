@@ -921,7 +921,7 @@ function FunExpression(name, left)
 			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
-				assert(symEntry.val.kind ~= "matexp")
+				assert(symEntry.val.kind ~= "matexp", "grad() expected matrix")
 				local rows = {}
 				for _, arg in ipairs(args) do
 					table.insert(rows, { symEntry.val.derive(arg) })
@@ -931,7 +931,7 @@ function FunExpression(name, left)
 					name = answerIndex,
 					kind = "fun",
 					args = args,
-					val = MatrixExpression(rows, #args, 1)
+					val = MatrixExpression(rows, #args, 1).expand().combined()
 				}
 				answerIndex = answerIndex + 1
 				symTable[newSymEntry.name] = newSymEntry
@@ -945,7 +945,7 @@ function FunExpression(name, left)
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
 				local exp_add
-				assert(symEntry.val.kind ~= "matexp")
+				assert(symEntry.val.kind ~= "matexp", "div() expected matrix")
 				for _, arg in ipairs(args) do
 					local t = symEntry.val.derive(arg)
 					exp_add = (exp_add and AddExpression(exp_add, t)) or t
@@ -955,7 +955,7 @@ function FunExpression(name, left)
 					name = answerIndex,
 					kind = "fun",
 					args = args,
-					val = exp_add
+					val = exp_add.expand().combined()
 				}
 				answerIndex = answerIndex + 1
 				symTable[newSymEntry.name] = newSymEntry
@@ -970,8 +970,8 @@ function FunExpression(name, left)
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
 		
-				assert(symEntry.val.kind == "matexp")
-				assert(symEntry.val.m == 3 and symEntry.val.n == 1)
+				assert(symEntry.val.kind == "matexp", "rot() expected matrix")
+				assert(symEntry.val.m == 3 and symEntry.val.n == 1, "rot() expected matrix dimension 3x1, found: " .. symEntry.val.m .. "x" .. symEntry.val.n)
 		
 				local rows = {}
 				rows = {}
@@ -984,7 +984,7 @@ function FunExpression(name, left)
 					name = answerIndex,
 					kind = "fun",
 					args = args,
-					val = MatrixExpression(rows, #args, 1)
+					val = MatrixExpression(rows, #args, 1).expand().combined()
 				}
 				answerIndex = answerIndex + 1
 				symTable[newSymEntry.name] = newSymEntry
@@ -998,7 +998,7 @@ function FunExpression(name, left)
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
 				local exp_add
-				assert(symEntry.val.kind ~= "matexp")
+				assert(symEntry.val.kind ~= "matexp", "laplace() expected matrix")
 				for _, arg in ipairs(args) do
 					local t = symEntry.val.derive(arg).derive(arg)
 					exp_add = (exp_add and AddExpression(exp_add, t)) or t
@@ -1008,7 +1008,7 @@ function FunExpression(name, left)
 					name = answerIndex,
 					kind = "fun",
 					args = args,
-					val = exp_add
+					val = exp_add.expand().combined()
 				}
 				answerIndex = answerIndex + 1
 				symTable[newSymEntry.name] = newSymEntry
@@ -1649,22 +1649,22 @@ end
 
 function assign(line)
 	local i1, i2 = string.find(line, ":=")
-	assert(i1)
+	assert(i1, "expected :=")
 	
 	local left = string.sub(line, 1, i1-1)
 	tokenize(left)
 	
 	local symEntry
 	if string.find(left, "%(") then
-		assert(#tokens > 2)
-		assert(tokens[1].kind == "sym")
+		assert(#tokens > 2, "function symbol expected tokens")
+		assert(tokens[1].kind == "sym", "function argument expected symbol")
 		local name = tokens[1].sym
 		local args = {}
-		assert(tokens[2].kind == "lpar")
+		assert(tokens[2].kind == "lpar", "function symbol expected left parenthesis")
 		i = 2
 		while tokens[i] and tokens[i].kind ~= "rpar" do
 			i = i + 1
-			assert(tokens[i] and tokens[i].kind == "sym")
+			assert(tokens[i] and tokens[i].kind == "sym", "function argument expected symbol")
 			table.insert(args, tokens[i].sym)
 			i = i + 1
 		end
@@ -1677,8 +1677,8 @@ function assign(line)
 		
 	
 	else
-		assert(#tokens == 1)
-		assert(tokens[1].kind == "sym")
+		assert(#tokens == 1, "variable name expected token")
+		assert(tokens[1].kind == "sym", "variable name expected symbol")
 		local name = tokens[1].sym
 	
 		symEntry = {

@@ -1130,7 +1130,6 @@ end
 @fun_exp_methods+=
 function self.combined() 
 	local t1 = self.left.combined()
-	@apply_functions_for_combine
 	return FunExpression(self.name, t1)
 end
 
@@ -1747,7 +1746,7 @@ assign = assign,
 
 @look_for_assign_symbol+=
 local i1, i2 = string.find(line, ":=")
-assert(i1)
+assert(i1, "expected :=")
 
 @get_left_from_assign_symbol_and_parse+=
 local left = string.sub(line, 1, i1-1)
@@ -1758,15 +1757,15 @@ if string.find(left, "%(") then
 	@parse_function_name_and_arguments
 
 @parse_function_name_and_arguments+=
-assert(#tokens > 2)
-assert(tokens[1].kind == "sym")
+assert(#tokens > 2, "function symbol expected tokens")
+assert(tokens[1].kind == "sym", "function argument expected symbol")
 local name = tokens[1].sym
 local args = {}
-assert(tokens[2].kind == "lpar")
+assert(tokens[2].kind == "lpar", "function symbol expected left parenthesis")
 i = 2
 while tokens[i] and tokens[i].kind ~= "rpar" do
 	i = i + 1
-	assert(tokens[i] and tokens[i].kind == "sym")
+	assert(tokens[i] and tokens[i].kind == "sym", "function argument expected symbol")
 	table.insert(args, tokens[i].sym)
 	i = i + 1
 end
@@ -1779,8 +1778,8 @@ symEntry = {
 
 @otherwise_just_regular_variable+=
 else
-	assert(#tokens == 1)
-	assert(tokens[1].kind == "sym")
+	assert(#tokens == 1, "variable name expected token")
+	assert(tokens[1].kind == "sym", "variable name expected symbol")
 	local name = tokens[1].sym
 
 	symEntry = {
@@ -1882,7 +1881,7 @@ if self.name == "grad" and t1.kind == "symexp" then
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
-		assert(symEntry.val.kind ~= "matexp")
+		assert(symEntry.val.kind ~= "matexp", "grad() expected matrix")
 		@apply_grad
 		@make_function_for_matrix
 		return SymExpression(newSymEntry.name)
@@ -1903,7 +1902,7 @@ local newSymEntry = {
 	name = answerIndex,
 	kind = "fun",
 	args = args,
-	val = MatrixExpression(rows, #args, 1)
+	val = MatrixExpression(rows, #args, 1).expand().combined()
 }
 answerIndex = answerIndex + 1
 symTable[newSymEntry.name] = newSymEntry
@@ -1914,7 +1913,7 @@ if self.name == "div" and t1.kind == "symexp" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
 		local exp_add
-		assert(symEntry.val.kind ~= "matexp")
+		assert(symEntry.val.kind ~= "matexp", "div() expected matrix")
 		@apply_div
 		@make_function_for_exp_add
 		return SymExpression(newSymEntry.name)
@@ -1932,7 +1931,7 @@ local newSymEntry = {
 	name = answerIndex,
 	kind = "fun",
 	args = args,
-	val = exp_add
+	val = exp_add.expand().combined()
 }
 answerIndex = answerIndex + 1
 symTable[newSymEntry.name] = newSymEntry
@@ -1944,8 +1943,8 @@ if self.name == "rot" and t1.kind == "symexp" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
 
-		assert(symEntry.val.kind == "matexp")
-		assert(symEntry.val.m == 3 and symEntry.val.n == 1)
+		assert(symEntry.val.kind == "matexp", "rot() expected matrix")
+		assert(symEntry.val.m == 3 and symEntry.val.n == 1, "rot() expected matrix dimension 3x1, found: " .. symEntry.val.m .. "x" .. symEntry.val.n)
 
 		local rows = {}
 		@apply_rot
@@ -1967,7 +1966,7 @@ if self.name == "laplace" and t1.kind == "symexp" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
 		local exp_add
-		assert(symEntry.val.kind ~= "matexp")
+		assert(symEntry.val.kind ~= "matexp", "laplace() expected matrix")
 		@apply_laplace
 		@make_function_for_exp_add
 		return SymExpression(newSymEntry.name)
