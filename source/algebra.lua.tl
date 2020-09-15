@@ -12,6 +12,7 @@
 @assign
 @simplify
 @evalulate
+@show_latex
 
 return {
 @export_symbols
@@ -25,7 +26,6 @@ function expand(line)
 	@parse_string
 	@save_parsed_in_global
 	@show_result
-	-- @show_latex
 end
 
 
@@ -1431,18 +1431,17 @@ function self.toLatex()
 end
 @fun_exp_methods+=
 function self.toLatex() 
-	return "\\" .. self.name .. "{" .. self.left.toLatex() .. "}"
+	if funs[self.name] then
+		return "\\" .. self.name .. "{" .. self.args[1].toLatex() .. "}"
+	else
+		local fargs = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(fargs, arg.toLatex())
+		end
+		return self.name .. "(" .. table.concat(fargs, ", ") .. ")"
+	end
 end
 
-@show_latex+=
-f = io.open("out.tex", "w")
-f:write("\\documentclass[a4paper]{slides}\n")
-f:write("\\begin{document}\n")
-f:write("$" .. combined.substitute().expand().combined().toLatex() .. "$\n")
-f:write("\\end{document}\n")
-f:close()
-vim.api.nvim_command("!pandoc out.tex -o out.pdf")
-vim.api.nvim_command("!start out.pdf")
 
 @tokenize_bracket+=
 elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
@@ -2162,3 +2161,23 @@ tand = function(x) return math.tan(x*(math.pi/180.0)) end,
 acosd = function(x) return math.acos(x)*(180.0/math.pi) end,
 asind = function(x) return math.asin(x)*(180.0/math.pi) end,
 atand = function(x) return math.atan(x)*(180.0/math.pi) end,
+
+@show_latex+=
+local function show_latex()
+	@get_current_string
+	@parse_string
+	@generate_latex
+end
+
+@export_symbols+=
+show_latex = show_latex,
+
+@generate_latex+=
+f = io.open("out.tex", "w")
+f:write("\\documentclass[a4paper]{slides}\n")
+f:write("\\begin{document}\n")
+f:write("$" .. exp.toLatex() .. "$\n")
+f:write("\\end{document}\n")
+f:close()
+vim.api.nvim_command("!pandoc out.tex -o out.pdf")
+vim.api.nvim_command("!start out.pdf")

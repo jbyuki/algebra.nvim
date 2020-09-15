@@ -111,6 +111,7 @@ local funs = {
 	acosd = function(x) return math.acos(x)*(180.0/math.pi) end,
 	asind = function(x) return math.asin(x)*(180.0/math.pi) end,
 	atand = function(x) return math.atan(x)*(180.0/math.pi) end,
+	
 }
 
 local upper = {}
@@ -1119,8 +1120,17 @@ function FunExpression(name, args)
 		return priority_list["fun"]
 	end
 	function self.toLatex() 
-		return "\\" .. self.name .. "{" .. self.left.toLatex() .. "}"
+		if funs[self.name] then
+			return "\\" .. self.name .. "{" .. self.args[1].toLatex() .. "}"
+		else
+			local fargs = {}
+			for _,arg in ipairs(self.args) do
+				table.insert(fargs, arg.toLatex())
+			end
+			return self.name .. "(" .. table.concat(fargs, ", ") .. ")"
+		end
 	end
+	
 	
 	function self.getLeft() 
 		return self
@@ -1696,7 +1706,6 @@ function expand(line)
 	local line = res.toString()
 	vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
 	
-	-- @show_latex
 end
 
 
@@ -1787,6 +1796,24 @@ function evaluate()
 	
 end
 
+local function show_latex()
+	local line = vim.api.nvim_get_current_line()
+	
+	local exp = parseAll(line)
+	if not exp then
+		return
+	end
+	
+	f = io.open("out.tex", "w")
+	f:write("\\documentclass[a4paper]{slides}\n")
+	f:write("\\begin{document}\n")
+	f:write("$" .. exp.toLatex() .. "$\n")
+	f:write("\\end{document}\n")
+	f:close()
+	vim.api.nvim_command("!pandoc out.tex -o out.pdf")
+	vim.api.nvim_command("!start out.pdf")
+end
+
 
 return {
 printSymTable = printSymTable,
@@ -1794,6 +1821,8 @@ printSymTable = printSymTable,
 simplify = simplify,
 
 evaluate = evaluate,
+
+show_latex = show_latex,
 
 }
 
