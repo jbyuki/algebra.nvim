@@ -614,7 +614,13 @@ end
 
 @add_exp_methods+=
 function self.toString() 
-	return putParen(self.left, self.priority()) .. ((self.right.kind == "presubexp" and ("-" .. putParen(self.right.left, self.priority()))) or ("+" .. putParen(self.right, self.priority())))
+	if self.right.kind == "presubexp" then
+		return putParen(self.left, self.priority()) .. "-" .. putParen(self.right.left, self.priority())
+	elseif self.right.kind == "numexp" and self.right.num < 0 then
+		return putParen(self.left, self.priority()) .. "-" .. putParen(NumExpression(math.abs(self.right.num)), self.priority())
+	else
+		return putParen(self.left, self.priority()) .. "+" .. putParen(self.right, self.priority())
+	end
 end
 @sub_exp_methods+=
 function self.toString() 
@@ -913,17 +919,17 @@ end
 local collectUpperMul
 
 @mul_exp_methods+=
-function collectUpperMul(root, coeff, collect, rest)
+function collectUpperMul(root, coeff, collect, collectMat, rest)
 	if root.kind == "mulexp" then
-		coeff = collectUpperMul(root.left, coeff, collect, rest)
-		coeff = collectUpperMul(root.right, coeff, collect, rest)
+		coeff = collectUpperMul(root.left, coeff, collect, collectMat, rest)
+		coeff = collectUpperMul(root.right, coeff, collect, collectMat, rest)
 	else
 		local combined = root.combined()
 		if combined.kind == "presubexp" then
-			@if_prefix_sub_add_negative_and_combine_left
-		else
-			@otherwise_combine_mul_directly
+			coeff = coeff * -1
+			combined = combined.left
 		end
+		@combine_mul_directly
 	end
 	return coeff
 end
@@ -940,34 +946,19 @@ function copysign(mag, sign)
 	end
 end
 
-@if_prefix_sub_add_negative_and_combine_left+=
-combined = combined.left
-local factor = -1
-if combined.kind == "symexp" then
-	@combine_mul_sym_exp
-elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-	local sym, num = combined.left.sym, combined.right.num
-	@combine_mul_exp_exp
-elseif combined.kind == "numexp" then
-	coeff = coeff * -combined.num
-else
-	table.insert(rest, PrefixSubExpression(combined))
-end
-
 @combine_mul_sym_exp+=
 if not collect[combined.sym] then
 	collect[combined.sym] = 0
 end
-collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym]*factor)
+collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym])
 
 @combine_mul_exp_exp+=
 if not collect[combined.left.sym] then
 	collect[combined.left.sym] = 0
 end
-collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym]*factor)
+collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym])
 
-@otherwise_combine_mul_directly+=
-local factor = 1
+@combine_mul_directly+=
 if combined.kind == "symexp" then
 	@combine_mul_sym_exp
 elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
@@ -975,9 +966,43 @@ elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined
 	@combine_mul_exp_exp
 elseif combined.kind == "numexp" then
 	coeff = coeff * combined.num
+@add_mat_mul_term
 else
 	table.insert(rest, combined)
 end
+
+@add_mat_mul_term+=
+elseif combined.kind == "matexp" then
+	table.insert(collectMat, combined)
+
+@combine_mat_if_only_one+=
+if #collectMat > 0 then
+	local exp_mat
+	@multiply_the_matrices_together
+	if exp_mul then
+		@multiply_coefficient_to_every_mat_cell
+	else
+		exp_mul = exp_mat
+	end
+end
+
+@multiply_the_matrices_together+=
+exp_mat = collectMat[1]
+print("hello hey")
+for i=2,#collectMat do
+	exp_mat = MulExpression(exp_mat, collectMat[i]).combinedMatrix()
+end
+
+@multiply_coefficient_to_every_mat_cell+=
+local rows = {}
+for i=1,exp_mat.m do
+	local new_row = {}
+	for j=1,exp_mat.n do
+		table.insert(new_row, MulExpression(exp_mul, exp_mat.rows[i][j]).expand().combined())
+	end
+	table.insert(rows, new_row)
+end
+exp_mul = MatrixExpression(rows, exp_mat.m, exp_mat.n)
 
 @mul_exp_methods+=
 function self.combined() 
@@ -993,6 +1018,7 @@ function self.combined()
 	@combine_unknown_power
 	@combine_rest_terms
 	@combine_coefficient
+	@combine_mat_if_only_one
 
 	exp_mul = exp_mul or NumExpression(0)
 	
@@ -1019,8 +1045,9 @@ end
 local collectAll = {}
 local rest = {}
 local coeff = 1
-coeff = collectUpperMul(self.left, coeff, collectAll, rest)
-coeff = collectUpperMul(self.right, coeff, collectAll, rest)
+local collectMat = {}
+coeff = collectUpperMul(self.left, coeff, collectAll, collectMat, rest)
+coeff = collectUpperMul(self.right, coeff, collectAll, collectMat, rest)
 
 
 @declare_functions+=
@@ -2023,12 +2050,12 @@ local symEntry = {
 symTable["answer"] = symEntry
 
 @show_result+=
-local res = exp.substitute().combinedMatrix().expand().combined()
+local res = exp.substitute().expand().combined()
 local line = res.toString()
 vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
 
 @compute_exp_right_side_assignment+=
-exp = exp.substitute().combinedMatrix().expand().combined()
+exp = exp.substitute().expand().combined()
 print(symEntry.name .. " := " .. exp.toString())
 
 @evalulate+=
