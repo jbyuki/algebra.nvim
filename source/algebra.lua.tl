@@ -417,26 +417,24 @@ function self.prefix()
 end
 
 @add_exp_methods+=
-function self.eval() return self.left.eval() + self.right.eval() end
+function self.eval(env) return self.left.eval(env) + self.right.eval(env) end
 @sub_exp_methods+=
-function self.eval() return self.left.eval() - self.right.eval() end
+function self.eval(env) return self.left.eval(env) - self.right.eval(env) end
 @mul_exp_methods+=
-function self.eval() return self.left.eval() * self.right.eval() end
+function self.eval(env) return self.left.eval(env) * self.right.eval(env) end
 @div_exp_methods+=
-function self.eval() return self.left.eval() / self.right.eval() end
+function self.eval(env) return self.left.eval(env) / self.right.eval(env) end
 @num_exp_methods+=
-function self.eval() return self.num end
+function self.eval(env) return self.num end
 @sym_exp_methods+=
-function self.eval() 
-	assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
-	if symTable[self.sym].kind == "var" then
-		return symTable[self.sym].val.eval()
-	else
-		assert(false, "could not evaluate function")
-	end
+function self.eval(env) 
+	assert(env[self.sym], "symbol " .. self.sym .. " does not exist")
+	return env[self.sym].val.eval(env)
 end
+
+
 @presub_exp_methods+=
-function self.eval() return -self.left.eval() end
+function self.eval(env) return -self.left.eval(env) end
 
 @declare_functions+=
 local FunExpression
@@ -492,15 +490,28 @@ atan2 = math.atan2,
 abs = math.abs,
 
 @fun_exp_methods+=
-function self.eval() 
+function self.eval(env) 
 	@evaluate_function_arguments
-	return funs[self.name](unpack(evaluated))
+	if env[self.name] and env[self.name].kind == "fun" then
+		@create_new_environment_with_arguments
+		return env[self.name].val.eval(new_env)
+	end
+	return funs[self.name](unpack(fargs))
 end
 
 @evaluate_function_arguments+=
-local evaluated = {}
+local fargs = {}
 for _,arg in ipairs(self.args) do
-	table.insert(evaluated, arg.eval())
+	table.insert(fargs, arg.eval(env))
+end
+
+@create_new_environment_with_arguments+=
+local new_env = setmetatable({}, { __index = env })
+for i=1,#self.args do
+	new_env[env[self.name].args[i]] = { 
+		name = env[self.name].args[i], 
+		val = NumExpression(fargs[i])
+	}
 end
 
 @tokens+=
@@ -534,7 +545,7 @@ function self.priority() return priority_list["exp"] end
 ["exp"] = 70,
 
 @exp_exp_methods+=
-function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
+function self.eval(env) return math.pow(self.left.eval(env), self.right.eval(env)) end
 
 @mul_exp_methods+=
 function self.expand()
@@ -686,9 +697,6 @@ function self.toString()
 end
 @sym_exp_methods+=
 function self.toString() 
-	if symTable[self.sym] then 
-		return symTable[self.sym].val.toString()
-	end
 	return self.sym
 end
 @num_exp_methods+=
@@ -1891,7 +1899,7 @@ function self.substitute()
 end
 @sym_exp_methods+=
 function self.substitute() 
-	if symTable[self.sym] and symTable[self.sym].kind == "var" then
+	if symTable[self.sym] and symTable[self.sym].kind == "var" and symTable[self.sym].val.kind ~= "numexp" then
 		return symTable[self.sym].val.substitute()
 	end
 	return self
@@ -2144,7 +2152,7 @@ end
 evaluate = evaluate,
 
 @evaluate_expression_and_output+=
-local res = tostring(exp.eval())
+local res = tostring(exp.eval(symTable))
 vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
 
 @list_supported_functions+=

@@ -125,7 +125,7 @@ function AddExpression(left, right)
 	local self = { kind = "addexp", left = left, right = right }
 	local collectUpperAddCombine
 	
-	function self.eval() return self.left.eval() + self.right.eval() end
+	function self.eval(env) return self.left.eval(env) + self.right.eval(env) end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -412,7 +412,7 @@ return self end
 
 function PrefixSubExpression(left) 
 	local self = { kind = "presubexp", left = left }
-	function self.eval() return -self.left.eval() end
+	function self.eval(env) return -self.left.eval(env) end
 	
 	function self.expand() 
 		local t1 = self.left.expand()
@@ -470,7 +470,7 @@ return self end
 
 function SubExpression(left, right)
 	local self = { kind = "subexp", left = left, right = right }
-	function self.eval() return self.left.eval() - self.right.eval() end
+	function self.eval(env) return self.left.eval(env) - self.right.eval(env) end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -539,7 +539,7 @@ function MulExpression(left, right)
 	
 	local collectUpperAddExpand
 	
-	function self.eval() return self.left.eval() * self.right.eval() end
+	function self.eval(env) return self.left.eval(env) * self.right.eval(env) end
 	function self.expand()
 		local collectLeft = {}
 		local collectRight = {}
@@ -786,7 +786,7 @@ return self end
 
 function DivExpression(left, right)
 	local self = { kind = "divexp", left = left, right = right }
-	function self.eval() return self.left.eval() / self.right.eval() end
+	function self.eval(env) return self.left.eval(env) / self.right.eval(env) end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -845,7 +845,7 @@ return self end
 
 function NumExpression(num)
 	local self = { kind = "numexp", num = num }
-	function self.eval() return self.num end
+	function self.eval(env) return self.num end
 	function self.expand() 
 		return NumExpression(self.num)
 	end
@@ -877,21 +877,16 @@ return self end
 
 function SymExpression(sym)
 	local self = { kind = "symexp", sym = sym }
-	function self.eval() 
-		assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
-		if symTable[self.sym].kind == "var" then
-			return symTable[self.sym].val.eval()
-		else
-			assert(false, "could not evaluate function")
-		end
+	function self.eval(env) 
+		assert(env[self.sym], "symbol " .. self.sym .. " does not exist")
+		return env[self.sym].val.eval(env)
 	end
+	
+	
 	function self.expand() 
 		return SymExpression(self.sym) 
 	end
 	function self.toString() 
-		if symTable[self.sym] then 
-			return symTable[self.sym].val.toString()
-		end
 		return self.sym
 	end
 	function self.combined() 
@@ -912,7 +907,7 @@ function SymExpression(sym)
 		return self
 	end
 	function self.substitute() 
-		if symTable[self.sym] and symTable[self.sym].kind == "var" then
+		if symTable[self.sym] and symTable[self.sym].kind == "var" and symTable[self.sym].val.kind ~= "numexp" then
 			return symTable[self.sym].val.substitute()
 		end
 		return self
@@ -924,13 +919,24 @@ return self end
 
 function FunExpression(name, args)
 	local self = { kind = "funexp", name = name, args = args }
-	function self.eval() 
-		local evaluated = {}
+	function self.eval(env) 
+		local fargs = {}
 		for _,arg in ipairs(self.args) do
-			table.insert(evaluated, arg.eval())
+			table.insert(fargs, arg.eval(env))
 		end
 		
-		return funs[self.name](unpack(evaluated))
+		if env[self.name] and env[self.name].kind == "fun" then
+			local new_env = setmetatable({}, { __index = env })
+			for i=1,#self.args do
+				new_env[env[self.name].args[i]] = { 
+					name = env[self.name].args[i], 
+					val = NumExpression(fargs[i])
+				}
+			end
+			
+			return env[self.name].val.eval(new_env)
+		end
+		return funs[self.name](unpack(fargs))
 	end
 	
 	function self.arity()
@@ -1137,7 +1143,7 @@ return self end
 
 function ExpExpression(left, right)
 	local self = { kind = "expexp", left = left, right = right }
-	function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
+	function self.eval(env) return math.pow(self.left.eval(env), self.right.eval(env)) end
 	
 	function self.toString() 
 		return putParen(self.left, self.priority()) .. "^" .. putParen(self.right, self.priority())
@@ -1776,7 +1782,7 @@ function evaluate()
 	}
 	symTable["answer"] = symEntry
 	
-	local res = tostring(exp.eval())
+	local res = tostring(exp.eval(symTable))
 	vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
 	
 end
