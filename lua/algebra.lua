@@ -105,6 +105,12 @@ local funs = {
 	atan2 = math.atan2,
 	abs = math.abs,
 	
+	cosd = function(x) return math.cos(x*(math.pi/180.0)) end,
+	sind = function(x) return math.sin(x*(math.pi/180.0)) end,
+	tand = function(x) return math.tan(x*(math.pi/180.0)) end,
+	acosd = function(x) return math.acos(x)*(180.0/math.pi) end,
+	asind = function(x) return math.asin(x)*(180.0/math.pi) end,
+	atand = function(x) return math.atan(x)*(180.0/math.pi) end,
 }
 
 local upper = {}
@@ -687,7 +693,6 @@ function MulExpression(left, right)
 		if #collectMat > 0 then
 			local exp_mat
 			exp_mat = collectMat[1]
-			print("hello hey")
 			for i=2,#collectMat do
 				exp_mat = MulExpression(exp_mat, collectMat[i]).combinedMatrix()
 			end
@@ -872,7 +877,14 @@ return self end
 
 function SymExpression(sym)
 	local self = { kind = "symexp", sym = sym }
-	function self.eval() return 0 end
+	function self.eval() 
+		assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
+		if symTable[self.sym].kind == "var" then
+			return symTable[self.sym].val.eval()
+		else
+			assert(false, "could not evaluate function")
+		end
+	end
 	function self.expand() 
 		return SymExpression(self.sym) 
 	end
@@ -910,14 +922,30 @@ function SymExpression(sym)
 	end
 return self end
 
-function FunExpression(name, left)
-	local self = { kind = "funexp", name = name, left = left }
-	function self.eval() return funs[self.name](self.left.eval()) end
+function FunExpression(name, args)
+	local self = { kind = "funexp", name = name, args = args }
+	function self.eval() 
+		local evaluated = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(evaluated, arg.eval())
+		end
+		
+		return funs[self.name](unpack(evaluated))
+	end
+	
+	function self.arity()
+		return #self.args
+	end
 	
 	function self.expand() 
-		local t1 = self.left.expand()
-		print("t1: " .. t1.toString())
-		if self.name == "grad" and t1.kind == "symexp" then
+		local fargs = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(fargs, arg.expand())
+		end
+		
+		
+		if self.name == "grad" and #fargs == 1 and fargs[1].kind == "symexp" then
+			local t1 = fargs[1]
 			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
@@ -940,7 +968,8 @@ function FunExpression(name, left)
 			end
 		end
 		
-		if self.name == "div" and t1.kind == "symexp" then
+		if self.name == "div" and #fargs == 1 and fargs[1].kind == "symexp" then
+			local t1 = fargs[1]
 			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
@@ -964,7 +993,8 @@ function FunExpression(name, left)
 			end
 		end
 		
-		if self.name == "rot" and t1.kind == "symexp" then
+		if self.name == "rot" and #fargs == 1 and fargs[1].kind == "symexp" then
+			local t1 = fargs[1]
 			local arg
 			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 				local symEntry = symTable[t1.sym]
@@ -993,7 +1023,8 @@ function FunExpression(name, left)
 			end
 		end
 		
-		if self.name == "laplace" and t1.kind == "symexp" then
+		if self.name == "laplace" and #fargs == 1 and fargs[1].kind == "symexp" then
+			local t1 = fargs[1]
 			if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 				local symEntry = symTable[t1.sym]
 				local args = symEntry.args
@@ -1018,24 +1049,30 @@ function FunExpression(name, left)
 		end
 		
 		
-		return FunExpression(self.name, t1) 
+		return FunExpression(self.name, fargs) 
 	end
 	
-	
 	function self.toString() 
-		return self.name .. "(" .. self.left.toString() .. ")"
+		local fargs = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(fargs, arg.toString())
+		end
+		return self.name .. "(" .. table.concat(fargs, ", ") .. ")"
 	end
 	
 	function self.combined() 
-		local t1 = self.left.combined()
-		return FunExpression(self.name, t1)
+		local fargs = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(fargs, arg.combined())
+		end
+		return FunExpression(self.name, fargs)
 	end
 	
 	function self.derive(sym) 
 		if self.name == "" then
 		elseif self.name == "cos" then
 			-- -sin(u)*u'
-			local l = FunExpression("sin", vim.deepcopy(self.left))
+			local l = FunExpression("sin", vim.deepcopy(self.args[1]))
 			local t1 = self.left.derive(sym)
 			local p = MulExpression(l, t1)
 			if isZero(t1) then
@@ -1046,7 +1083,7 @@ function FunExpression(name, left)
 			return PrefixSubExpression(p)
 		elseif self.name == "sin" then
 			-- cos(u)*u'
-			local l = FunExpression("cos", vim.deepcopy(self.left))
+			local l = FunExpression("cos", vim.deepcopy(self.args[1]))
 			local t1 = self.left.derive(sym)
 			local p = MulExpression(l, t1)
 			if isZero(t1) then
@@ -1057,7 +1094,7 @@ function FunExpression(name, left)
 			return p
 		elseif self.name == "sqrt" then
 			-- u'/(2*sqrt(u))
-			local t1 = self.left.derive(sym)
+			local t1 = self.args[1].derive(sym)
 			if isZero(t1) then
 				return t1
 			end
@@ -1083,10 +1120,18 @@ function FunExpression(name, left)
 		return self
 	end
 	function self.substitute() 
-		return FunExpression(self.name, self.left.substitute())
+		local fargs = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(fargs, arg.substitute())
+		end
+		return FunExpression(self.name, fargs)
 	end
 	function self.combinedMatrix() 
-		return FunExpression(self.name, self.left.combinedMatrix())
+		local fargs = {}
+		for _,arg in ipairs(self.args) do
+			table.insert(fargs, arg.combinedMatrix())
+		end
+		return FunExpression(self.name, fargs)
 	end
 return self end
 
@@ -1354,18 +1399,23 @@ local function LParToken() local self = { kind = "lpar" }
 	function self.priority() return priority_list["lpar"] end
 	
 	function self.infix(left)
-		local exp = parse(20)
-		if not exp then
-			return nil
+		local args = {}
+		while not finish() do
+			local exp = parse(20)
+			if not exp then
+				return nil
+			end
+			table.insert(args, exp)
+			local t = nextToken()
+			if t.kind == "rpar" then
+				break
+			end
+			
+			assert(t.kind == "comma", "expected comma in function arg list")
+			
 		end
-		local rpar = nextToken()
-		if not rpar or rpar.kind ~= "rpar" then 
-			table.insert(events, "Unmatched '('")
-			return nil
-		end
-		
 		local name = left.sym
-		return FunExpression(name, exp)
+		return FunExpression(name, args)
 	end
 	
 return self end
@@ -1547,9 +1597,6 @@ function parse(p)
 		return nil
 	end
 
-	if not t.prefix then
-		print(t.kind)
-	end
 	local exp = t.prefix()
 
 	while exp and not finish() and p <= getToken().priority() do
@@ -1701,7 +1748,7 @@ function assign(line)
 	
 end
 
-function evaluate()
+function simplify()
 	local line = vim.api.nvim_get_current_line()
 	
 	if string.match(line, ":=") then
@@ -1710,15 +1757,37 @@ function evaluate()
 	else
 		expand(line)
 	end
+	
+end
+
+function evaluate()
+	local line = vim.api.nvim_get_current_line()
+	
+	local exp = parseAll(line)
+	if not exp then
+		return
+	end
+	
+	answer = exp
+	local symEntry = {
+		name = "answer",
+		kind = "var",
+		val = exp
+	}
+	symTable["answer"] = symEntry
+	
+	local res = tostring(exp.eval())
+	vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
+	
 end
 
 
 return {
-assign = assign,
-
 printSymTable = printSymTable,
 
-evaluate = evaluate
+simplify = simplify,
+
+evaluate = evaluate,
 
 }
 

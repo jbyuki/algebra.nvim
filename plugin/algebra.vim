@@ -5,6 +5,7 @@
 
 lua algebra = require("algebra")
 
-nnoremap <F2> :lua algebra.evaluate()<CR>
+nnoremap <F2> :lua algebra.simplify()<CR>
+nnoremap <F3> :lua algebra.evaluate()<CR>
 nnoremap <F5> :lua algebra.printSymTable()<CR>
 

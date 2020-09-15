@@ -23,7 +23,8 @@ Install using your favorite plugin manager. No additional dependencies
 Usage
 -----
 
-* <kbd>F2</kbd>: evaluate the current line
+* <kbd>F2</kbd>: simplify the current line
+* <kbd>F3</kbd>: evaluate the current line
 * <kbd>F5</kbd>: display the symbol table
 
 Example

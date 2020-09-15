@@ -10,6 +10,7 @@
 @parse
 @expand
 @assign
+@simplify
 @evalulate
 
 return {
@@ -228,9 +229,6 @@ function parse(p)
 		return nil
 	end
 
-	if not t.prefix then
-		print(t.kind)
-	end
 	local exp = t.prefix()
 
 	while exp and not finish() and p <= getToken().priority() do
@@ -429,7 +427,14 @@ function self.eval() return self.left.eval() / self.right.eval() end
 @num_exp_methods+=
 function self.eval() return self.num end
 @sym_exp_methods+=
-function self.eval() return 0 end
+function self.eval() 
+	assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
+	if symTable[self.sym].kind == "var" then
+		return symTable[self.sym].val.eval()
+	else
+		assert(false, "could not evaluate function")
+	end
+end
 @presub_exp_methods+=
 function self.eval() return -self.left.eval() end
 
@@ -437,8 +442,8 @@ function self.eval() return -self.left.eval() end
 local FunExpression
 
 @expressions+=
-function FunExpression(name, left)
-	local self = { kind = "funexp", name = name, left = left }
+function FunExpression(name, args)
+	local self = { kind = "funexp", name = name, args = args }
 	@fun_exp_methods
 return self end
 
@@ -449,14 +454,28 @@ local funs = {
 
 @lpar_token_methods+=
 function self.infix(left)
-	local exp = parse(20)
-	if not exp then
-		return nil
+	local args = {}
+	while not finish() do
+		local exp = parse(20)
+		if not exp then
+			return nil
+		end
+		table.insert(args, exp)
+		local t = nextToken()
+		@if_rpar_quit
+		@if_comma_next_arg
 	end
-	@check_rpar
 	local name = left.sym
-	return FunExpression(name, exp)
+	return FunExpression(name, args)
 end
+
+@if_rpar_quit+=
+if t.kind == "rpar" then
+	break
+end
+
+@if_comma_next_arg+=
+assert(t.kind == "comma", "expected comma in function arg list")
 
 @list_supported_functions+=
 sin = math.sin,
@@ -473,7 +492,16 @@ atan2 = math.atan2,
 abs = math.abs,
 
 @fun_exp_methods+=
-function self.eval() return funs[self.name](self.left.eval()) end
+function self.eval() 
+	@evaluate_function_arguments
+	return funs[self.name](unpack(evaluated))
+end
+
+@evaluate_function_arguments+=
+local evaluated = {}
+for _,arg in ipairs(self.args) do
+	table.insert(evaluated, arg.eval())
+end
 
 @tokens+=
 local function ExpToken() local self = { kind = "exp" }
@@ -592,11 +620,21 @@ function self.expand()
 	return NumExpression(self.num)
 end
 @fun_exp_methods+=
+function self.arity()
+	return #self.args
+end
+
+@fun_exp_methods+=
 function self.expand() 
-	local t1 = self.left.expand()
-	print("t1: " .. t1.toString())
+	@expand_function_args
 	@apply_functions_for_expand
-	return FunExpression(self.name, t1) 
+	return FunExpression(self.name, fargs) 
+end
+
+@expand_function_args+=
+local fargs = {}
+for _,arg in ipairs(self.args) do
+	table.insert(fargs, arg.expand())
 end
 
 
@@ -659,7 +697,11 @@ function self.toString()
 end
 @fun_exp_methods+=
 function self.toString() 
-	return self.name .. "(" .. self.left.toString() .. ")"
+	local fargs = {}
+	for _,arg in ipairs(self.args) do
+		table.insert(fargs, arg.toString())
+	end
+	return self.name .. "(" .. table.concat(fargs, ", ") .. ")"
 end
 
 @exp_exp_methods+=
@@ -988,7 +1030,6 @@ end
 
 @multiply_the_matrices_together+=
 exp_mat = collectMat[1]
-print("hello hey")
 for i=2,#collectMat do
 	exp_mat = MulExpression(exp_mat, collectMat[i]).combinedMatrix()
 end
@@ -1129,8 +1170,11 @@ function self.combined()
 end
 @fun_exp_methods+=
 function self.combined() 
-	local t1 = self.left.combined()
-	return FunExpression(self.name, t1)
+	local fargs = {}
+	for _,arg in ipairs(self.args) do
+		table.insert(fargs, arg.combined())
+	end
+	return FunExpression(self.name, fargs)
 end
 
 @declare_functions+=
@@ -1262,17 +1306,17 @@ end
 if self.name == "" then
 elseif self.name == "cos" then
 	-- -sin(u)*u'
-	local l = FunExpression("sin", vim.deepcopy(self.left))
+	local l = FunExpression("sin", vim.deepcopy(self.args[1]))
 	@composition_rule
 	return PrefixSubExpression(p)
 elseif self.name == "sin" then
 	-- cos(u)*u'
-	local l = FunExpression("cos", vim.deepcopy(self.left))
+	local l = FunExpression("cos", vim.deepcopy(self.args[1]))
 	@composition_rule
 	return p
 elseif self.name == "sqrt" then
 	-- u'/(2*sqrt(u))
-	local t1 = self.left.derive(sym)
+	local t1 = self.args[1].derive(sym)
 	if isZero(t1) then
 		return t1
 	end
@@ -1741,9 +1785,6 @@ function assign(line)
 	@assign_exp_in_symbol_table
 end
 
-@export_symbols+=
-assign = assign,
-
 @look_for_assign_symbol+=
 local i1, i2 = string.find(line, ":=")
 assert(i1, "expected :=")
@@ -1861,7 +1902,11 @@ function self.substitute()
 end
 @fun_exp_methods+=
 function self.substitute() 
-	return FunExpression(self.name, self.left.substitute())
+	local fargs = {}
+	for _,arg in ipairs(self.args) do
+		table.insert(fargs, arg.substitute())
+	end
+	return FunExpression(self.name, fargs)
 end
 @mat_exp_methods+=
 function self.substitute() 
@@ -1877,7 +1922,8 @@ function self.substitute()
 end
 
 @apply_functions_for_expand+=
-if self.name == "grad" and t1.kind == "symexp" then
+if self.name == "grad" and #fargs == 1 and fargs[1].kind == "symexp" then
+	local t1 = fargs[1]
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
@@ -1908,7 +1954,8 @@ answerIndex = answerIndex + 1
 symTable[newSymEntry.name] = newSymEntry
 
 @apply_functions_for_expand+=
-if self.name == "div" and t1.kind == "symexp" then
+if self.name == "div" and #fargs == 1 and fargs[1].kind == "symexp" then
+	local t1 = fargs[1]
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
@@ -1937,7 +1984,8 @@ answerIndex = answerIndex + 1
 symTable[newSymEntry.name] = newSymEntry
 
 @apply_functions_for_expand+=
-if self.name == "rot" and t1.kind == "symexp" then
+if self.name == "rot" and #fargs == 1 and fargs[1].kind == "symexp" then
+	local t1 = fargs[1]
 	local arg
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 		local symEntry = symTable[t1.sym]
@@ -1961,7 +2009,8 @@ rows[2] = { AddExpression(mat.rows[1][1].derive(args[3]), PrefixSubExpression(ma
 rows[3] = { AddExpression(mat.rows[2][1].derive(args[1]), PrefixSubExpression(mat.rows[1][1].derive(args[2]))) }
 
 @apply_functions_for_expand+=
-if self.name == "laplace" and t1.kind == "symexp" then
+if self.name == "laplace" and #fargs == 1 and fargs[1].kind == "symexp" then
+	local t1 = fargs[1]
 	if symTable[t1.sym] and symTable[t1.sym].kind == "fun" then
 		local symEntry = symTable[t1.sym]
 		local args = symEntry.args
@@ -2021,7 +2070,11 @@ function self.combinedMatrix()
 end
 @fun_exp_methods+=
 function self.combinedMatrix() 
-	return FunExpression(self.name, self.left.combinedMatrix())
+	local fargs = {}
+	for _,arg in ipairs(self.args) do
+		table.insert(fargs, arg.combinedMatrix())
+	end
+	return FunExpression(self.name, fargs)
 end
 @mat_exp_methods+=
 function self.combinedMatrix() 
@@ -2057,15 +2110,15 @@ vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
 exp = exp.substitute().expand().combined()
 print(symEntry.name .. " := " .. exp.toString())
 
-@evalulate+=
-function evaluate()
+@simplify+=
+function simplify()
 	@get_current_string
 	@if_has_assignement_sign_do_assignement
 	@otherwise_just_expand_the_expression
 end
 
 @export_symbols+=
-evaluate = evaluate
+simplify = simplify,
 
 @get_current_string+=
 local line = vim.api.nvim_get_current_line()
@@ -2078,3 +2131,26 @@ if string.match(line, ":=") then
 else
 	expand(line)
 end
+
+@simplify+=
+function evaluate()
+	@get_current_string
+	@parse_string
+	@save_parsed_in_global
+	@evaluate_expression_and_output
+end
+
+@export_symbols+=
+evaluate = evaluate,
+
+@evaluate_expression_and_output+=
+local res = tostring(exp.eval())
+vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
+
+@list_supported_functions+=
+cosd = function(x) return math.cos(x*(math.pi/180.0)) end,
+sind = function(x) return math.sin(x*(math.pi/180.0)) end,
+tand = function(x) return math.tan(x*(math.pi/180.0)) end,
+acosd = function(x) return math.acos(x)*(180.0/math.pi) end,
+asind = function(x) return math.asin(x)*(180.0/math.pi) end,
+atand = function(x) return math.atan(x)*(180.0/math.pi) end,
