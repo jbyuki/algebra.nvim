@@ -156,7 +156,14 @@ function AddExpression(left, right)
 	local self = { kind = "addexp", left = left, right = right }
 	local collectUpperAddCombine
 	
-	function self.eval() return self.left.eval() + self.right.eval() end
+	function self.eval()
+		local t1 = self.left.eval()
+		local t2 = self.right.eval()
+		if t1.kind == "numexp" and t2.kind == "numexp" then
+			return NumExpression(t1.num+t2.num)
+		end
+		return AddExpression(t1,t2)
+	end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -482,7 +489,13 @@ return self end
 
 function PrefixSubExpression(left) 
 	local self = { kind = "presubexp", left = left }
-	function self.eval() return -self.left.eval() end
+	function self.eval() 
+		local t1 = self.left.eval()
+		if t1.kind == "numexp" then
+			return NumExpression(-t1.num)
+		end
+		return PrefixSubExpression(t1)
+	end
 	
 	function self.expand() 
 		local t1 = self.left.expand()
@@ -543,7 +556,14 @@ return self end
 
 function SubExpression(left, right)
 	local self = { kind = "subexp", left = left, right = right }
-	function self.eval() return self.left.eval() - self.right.eval() end
+	function self.eval()
+		local t1 = self.left.eval()
+		local t2 = self.right.eval()
+		if t1.kind == "numexp" and t2.kind == "numexp" then
+			return NumExpression(t1.num-t2.num)
+		end
+		return SubExpression(t1,t2)
+	end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -616,7 +636,14 @@ function MulExpression(left, right)
 	
 	local collectUpperAddExpand
 	
-	function self.eval() return self.left.eval() * self.right.eval() end
+	function self.eval() 
+		local t1 = self.left.eval()
+		local t2 = self.right.eval()
+		if t1.kind == "numexp" and t2.kind == "numexp" then
+			return NumExpression(t1.num*t2.num)
+		end
+		return MulExpression(t1,t2)
+	end
 	function self.expand()
 		local collectLeft = {}
 		local collectRight = {}
@@ -874,7 +901,14 @@ return self end
 
 function DivExpression(left, right)
 	local self = { kind = "divexp", left = left, right = right }
-	function self.eval() return self.left.eval() / self.right.eval() end
+	function self.eval() 
+		local t1 = self.left.eval()
+		local t2 = self.right.eval()
+		if t1.kind == "numexp" and t2.kind == "numexp" then
+			return NumExpression(t1.num/t2.num)
+		end
+		return DivExpression(t1,t2)
+	end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -937,7 +971,9 @@ return self end
 
 function NumExpression(num)
 	local self = { kind = "numexp", num = num }
-	function self.eval() return self.num end
+	function self.eval() 
+		return NumExpression(self.num)
+	end
 	function self.expand() 
 		return NumExpression(self.num)
 	end
@@ -1045,7 +1081,7 @@ function FunExpression(name, args)
 			
 			return res
 		end
-		return funs[self.name](unpack(fargs))
+		return NumExpression(funs[self.name](unpack(fargs)))
 	end
 	
 	function self.arity()
@@ -1215,6 +1251,56 @@ function FunExpression(name, args)
 			return MatrixExpression(rows, 3, 1)
 		end
 		
+		if self.name == "elim" then
+			assert(#fargs == 1, "elim() expects 1 argument found " .. #fargs)
+		
+			local t1 = fargs[1]
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
+			end
+		
+			assert(t1.kind == "matexp", "elim() expected matrix, found " .. t1.kind)
+		
+			local res = t1.expand()
+			local rows = res.rows;
+			for i=1,t1.m do
+				local s
+				for l=i,t1.m do
+					rows[l][i] = rows[l][i].expand().combined()
+					if not isZero(rows[l][i]) then
+						s = l
+						break
+					end
+				end
+				
+				assert(s, "inv() could not invert matrix")
+				
+				if s ~= i then
+					for o=i,t1.n do
+						rows[s][o], rows[i][o] = rows[i][l], rows[s][l]
+					end
+				end
+				
+				local coeff = rows[i][i].combined()
+				for l=i,t1.n do
+					rows[i][l] = DivExpression(rows[i][l], coeff)
+				end
+				
+				for k=1,t1.m do
+					if k ~= i then
+						local coeff = rows[k][i]
+						
+						for l=i,t1.n do
+							rows[k][l] = AddExpression(PrefixSubExpression(MulExpression(coeff, rows[i][l])), rows[k][l])
+						end
+					end
+				end
+			end
+			
+			return res.combined()
+		end
+		
 		return FunExpression(self.name, fargs) 
 	end
 	
@@ -1317,7 +1403,14 @@ return self end
 
 function ExpExpression(left, right)
 	local self = { kind = "expexp", left = left, right = right }
-	function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
+	function self.eval() 
+		local t1 = self.left.eval()
+		local t2 = self.right.eval()
+		if t1.kind == "numexp" and t2.kind == "numexp" then
+			return math.pow(t1.num, t2.num) 
+		end
+		return ExpExpression(t1, t2)
+	end
 	
 	function self.toString() 
 		return putParen(self.left, self.priority()) .. "^" .. putParen(self.right, self.priority())
@@ -1954,7 +2047,7 @@ function evaluate()
 	answer = exp
 	symTable["answer"] = exp
 	
-	local res = tostring(exp.eval())
+	local res = tostring(exp.eval().toString())
 	vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
 	
 end

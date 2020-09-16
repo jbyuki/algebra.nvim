@@ -507,15 +507,45 @@ function self.prefix()
 end
 
 @add_exp_methods+=
-function self.eval() return self.left.eval() + self.right.eval() end
+function self.eval()
+	local t1 = self.left.eval()
+	local t2 = self.right.eval()
+	if t1.kind == "numexp" and t2.kind == "numexp" then
+		return NumExpression(t1.num+t2.num)
+	end
+	return AddExpression(t1,t2)
+end
 @sub_exp_methods+=
-function self.eval() return self.left.eval() - self.right.eval() end
+function self.eval()
+	local t1 = self.left.eval()
+	local t2 = self.right.eval()
+	if t1.kind == "numexp" and t2.kind == "numexp" then
+		return NumExpression(t1.num-t2.num)
+	end
+	return SubExpression(t1,t2)
+end
 @mul_exp_methods+=
-function self.eval() return self.left.eval() * self.right.eval() end
+function self.eval() 
+	local t1 = self.left.eval()
+	local t2 = self.right.eval()
+	if t1.kind == "numexp" and t2.kind == "numexp" then
+		return NumExpression(t1.num*t2.num)
+	end
+	return MulExpression(t1,t2)
+end
 @div_exp_methods+=
-function self.eval() return self.left.eval() / self.right.eval() end
+function self.eval() 
+	local t1 = self.left.eval()
+	local t2 = self.right.eval()
+	if t1.kind == "numexp" and t2.kind == "numexp" then
+		return NumExpression(t1.num/t2.num)
+	end
+	return DivExpression(t1,t2)
+end
 @num_exp_methods+=
-function self.eval() return self.num end
+function self.eval() 
+	return NumExpression(self.num)
+end
 @sym_exp_methods+=
 function self.eval() 
 	assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
@@ -524,7 +554,13 @@ end
 
 
 @presub_exp_methods+=
-function self.eval() return -self.left.eval() end
+function self.eval() 
+	local t1 = self.left.eval()
+	if t1.kind == "numexp" then
+		return NumExpression(-t1.num)
+	end
+	return PrefixSubExpression(t1)
+end
 
 @declare_functions+=
 local FunExpression
@@ -636,7 +672,7 @@ function self.eval()
 		@unassign_variable_to_args
 		return res
 	end
-	return funs[self.name](unpack(fargs))
+	return NumExpression(funs[self.name](unpack(fargs)))
 end
 
 @evaluate_function_arguments+=
@@ -694,7 +730,14 @@ function self.priority() return priority_list["exp"] end
 ["exp"] = 70,
 
 @exp_exp_methods+=
-function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
+function self.eval() 
+	local t1 = self.left.eval()
+	local t2 = self.right.eval()
+	if t1.kind == "numexp" and t2.kind == "numexp" then
+		return math.pow(t1.num, t2.num) 
+	end
+	return ExpExpression(t1, t2)
+end
 
 @mul_exp_methods+=
 function self.expand()
@@ -2425,7 +2468,7 @@ end
 evaluate = evaluate,
 
 @evaluate_expression_and_output+=
-local res = tostring(exp.eval())
+local res = tostring(exp.eval().toString())
 vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
 
 @list_supported_functions+=
@@ -2663,3 +2706,78 @@ Default keybindings:
 * <kbd>F3</kbd> : Evaluate the current expression
 * <kbd>F4</kbd> : Output the current expression as LaTex
 * <kbd>F5</kbd> : Show the symbol table
+
+@apply_functions_for_expand+=
+if self.name == "elim" then
+	assert(#fargs == 1, "elim() expects 1 argument found " .. #fargs)
+
+	local t1 = fargs[1]
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
+	end
+
+	assert(t1.kind == "matexp", "elim() expected matrix, found " .. t1.kind)
+
+	@inverse_matrix_using_gaussian_elimination
+	return res.combined()
+end
+
+@functions_reference+=
+### `elim(x)`
+Does a gaussian eliminiation
+
+Arguments:
+* `x`: matrix expression
+```
+A := [1,2,3;3,4,5]
+elim(A)
+```
+
+@inverse_matrix_using_gaussian_elimination+=
+local res = t1.expand()
+local rows = res.rows;
+for i=1,t1.m do
+	@find_row_for_pivot
+	@switch_row_for_pivot
+	@make_pivot_equal_to_one
+	for k=1,t1.m do
+		if k ~= i then
+			@compute_coefficient_for_elimination
+			@add_both_rows_together
+		end
+	end
+end
+
+@find_row_for_pivot+=
+local s
+for l=i,t1.m do
+	rows[l][i] = rows[l][i].expand().combined()
+	if not isZero(rows[l][i]) then
+		s = l
+		break
+	end
+end
+
+assert(s, "inv() could not invert matrix")
+
+@switch_row_for_pivot+=
+if s ~= i then
+	for o=i,t1.n do
+		rows[s][o], rows[i][o] = rows[i][l], rows[s][l]
+	end
+end
+
+@make_pivot_equal_to_one+=
+local coeff = rows[i][i].combined()
+for l=i,t1.n do
+	rows[i][l] = DivExpression(rows[i][l], coeff)
+end
+
+@compute_coefficient_for_elimination+=
+local coeff = rows[k][i]
+
+@add_both_rows_together+=
+for l=i,t1.n do
+	rows[k][l] = AddExpression(PrefixSubExpression(MulExpression(coeff, rows[i][l])), rows[k][l])
+end

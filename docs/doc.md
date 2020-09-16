@@ -9,6 +9,7 @@ Default keybindings:
 * <kbd>F3</kbd> : Evaluate the current expression
 * <kbd>F4</kbd> : Output the current expression as LaTex
 * <kbd>F5</kbd> : Show the symbol table
+
 ### `parenthesis`
 Used to prioritize expression or used to evaluate a function.
 Examples:
@@ -229,6 +230,16 @@ Arguments:
 A := [0;0;1]
 B := [1;0;1]
 cross(A, B)
+```
+
+### `elim(x)`
+Does a gaussian eliminiation
+
+Arguments:
+* `x`: matrix expression
+```
+A := [1,2,3;3,4,5]
+elim(A)
 ```
 
 
