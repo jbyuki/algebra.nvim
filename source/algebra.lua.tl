@@ -222,7 +222,7 @@ The following constants are defined:
 @constants_reference
 Examples
 ```
-pi
+4*pi
 ```
 @constants_reference+=
 * `pi` : 3.141592...
@@ -2118,6 +2118,7 @@ end
 @functions_reference+=
 ### `grad(x)`
 Compute the gradient in x, y and z
+
 Arguments:
 * `x`: any expression
 ```
@@ -2229,6 +2230,7 @@ end
 @functions_reference+=
 ### `div(x)`
 Compute the divergence in x, y and z.
+
 Arguments:
 * `x`: matrix expression
 ```
@@ -2265,6 +2267,7 @@ end
 @functions_reference+=
 ### `rot(x)`
 Compute the rotational in x, y and z.
+
 Arguments:
 * `x`: 3 x 1 matrix expression 
 ```
@@ -2297,6 +2300,7 @@ end
 @functions_reference+=
 ### `laplace(x)`
 Laplace operator in x, y and z.
+
 Arguments:
 * `x`: any expression
 ```
@@ -2480,6 +2484,7 @@ end
 @functions_reference+=
 ### `det(x)`
 Compute the determinant of a square matrix
+
 Arguments:
 * `x`: square matrix expression
 ```
@@ -2556,6 +2561,7 @@ end
 @functions_reference+=
 ### `transpose(x)`
 Transpose the matrix
+
 Arguments:
 * `x`: matrix expression
 ```
@@ -2590,6 +2596,7 @@ end
 @functions_reference+=
 ### `dot(x,y)`
 Compute the dot products of two column vectors.
+
 Arguments:
 * `x`: n x 1 matrix expression
 * `y`: n x 1 matrix expression
@@ -2626,6 +2633,7 @@ end
 @functions_reference+=
 ### `cross(x,y)`
 Compute the cross products of two column vectors.
+
 Arguments:
 * `x`: 3 x 1 matrix expression
 * `y`: 3 x 1 matrix expression
@@ -2651,7 +2659,7 @@ simplify and evaluate symbolic expressions.
 
 @usage+=
 Default keybindings:
-* <kdb>F2</kbd> : Simplify the current expression
-* <kdb>F3</kbd> : Evaluate the current expression
-* <kdb>F4</kbd> : Output the current expression as LaTex
-* <kdb>F5</kbd> : Show the symbol table
+* <kbd>F2</kbd> : Simplify the current expression
+* <kbd>F3</kbd> : Evaluate the current expression
+* <kbd>F4</kbd> : Output the current expression as LaTex
+* <kbd>F5</kbd> : Show the symbol table

@@ -5,10 +5,10 @@ algebra.nvim is a plugin for neovim which allows to manipulate,
 simplify and evaluate symbolic expressions. 
 
 Default keybindings:
-* <kdb>F2</kbd> : Simplify the current expression
-* <kdb>F3</kbd> : Evaluate the current expression
-* <kdb>F4</kbd> : Output the current expression as LaTex
-* <kdb>F5</kbd> : Show the symbol table
+* <kbd>F2</kbd> : Simplify the current expression
+* <kbd>F3</kbd> : Evaluate the current expression
+* <kbd>F4</kbd> : Output the current expression as LaTex
+* <kbd>F5</kbd> : Show the symbol table
 ### `parenthesis`
 Used to prioritize expression or used to evaluate a function.
 Examples:
@@ -41,7 +41,7 @@ The following constants are defined:
 
 Examples
 ```
-pi
+4*pi
 ```
 ### `Addition`
 Examples:
@@ -146,6 +146,7 @@ Examples:
 
 ### `grad(x)`
 Compute the gradient in x, y and z
+
 Arguments:
 * `x`: any expression
 ```
@@ -156,6 +157,7 @@ grad(A)
 
 ### `div(x)`
 Compute the divergence in x, y and z.
+
 Arguments:
 * `x`: matrix expression
 ```
@@ -165,6 +167,7 @@ div(A)
 
 ### `rot(x)`
 Compute the rotational in x, y and z.
+
 Arguments:
 * `x`: 3 x 1 matrix expression 
 ```
@@ -174,6 +177,7 @@ rot(A)
 
 ### `laplace(x)`
 Laplace operator in x, y and z.
+
 Arguments:
 * `x`: any expression
 ```
@@ -184,6 +188,7 @@ laplace(A)
 
 ### `det(x)`
 Compute the determinant of a square matrix
+
 Arguments:
 * `x`: square matrix expression
 ```
@@ -194,6 +199,7 @@ det(A)
 
 ### `transpose(x)`
 Transpose the matrix
+
 Arguments:
 * `x`: matrix expression
 ```
@@ -203,6 +209,7 @@ transpose(A)
 
 ### `dot(x,y)`
 Compute the dot products of two column vectors.
+
 Arguments:
 * `x`: n x 1 matrix expression
 * `y`: n x 1 matrix expression
@@ -214,6 +221,7 @@ dot(A, B)
 
 ### `cross(x,y)`
 Compute the cross products of two column vectors.
+
 Arguments:
 * `x`: 3 x 1 matrix expression
 * `y`: 3 x 1 matrix expression
