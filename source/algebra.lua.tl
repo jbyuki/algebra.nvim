@@ -11,7 +11,7 @@
 @expand
 @assign
 @simplify
-@evalulate
+@evaluate
 @show_latex
 
 return {
@@ -417,24 +417,24 @@ function self.prefix()
 end
 
 @add_exp_methods+=
-function self.eval(env) return self.left.eval(env) + self.right.eval(env) end
+function self.eval() return self.left.eval() + self.right.eval() end
 @sub_exp_methods+=
-function self.eval(env) return self.left.eval(env) - self.right.eval(env) end
+function self.eval() return self.left.eval() - self.right.eval() end
 @mul_exp_methods+=
-function self.eval(env) return self.left.eval(env) * self.right.eval(env) end
+function self.eval() return self.left.eval() * self.right.eval() end
 @div_exp_methods+=
-function self.eval(env) return self.left.eval(env) / self.right.eval(env) end
+function self.eval() return self.left.eval() / self.right.eval() end
 @num_exp_methods+=
-function self.eval(env) return self.num end
+function self.eval() return self.num end
 @sym_exp_methods+=
-function self.eval(env) 
-	assert(env[self.sym], "symbol " .. self.sym .. " does not exist")
-	return env[self.sym].val.eval(env)
+function self.eval() 
+	assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
+	return symTable[self.sym].eval()
 end
 
 
 @presub_exp_methods+=
-function self.eval(env) return -self.left.eval(env) end
+function self.eval() return -self.left.eval() end
 
 @declare_functions+=
 local FunExpression
@@ -490,11 +490,18 @@ atan2 = math.atan2,
 abs = math.abs,
 
 @fun_exp_methods+=
-function self.eval(env) 
+function self.eval() 
 	@evaluate_function_arguments
-	if env[self.name] and env[self.name].kind == "fun" then
-		@create_new_environment_with_arguments
-		return env[self.name].val.eval(new_env)
+	if symTable[self.name] then
+		local t1 = symTable[self.name]
+		@collect_arg_list
+		-- print("arg list " .. vim.inspect(args))
+		-- print("t1 " .. vim.inspect(t1))
+		-- print("fargs " .. vim.inspect(fargs))
+		@assign_variables_to_args
+		local res = t1.eval()
+		@unassign_variable_to_args
+		return res
 	end
 	return funs[self.name](unpack(fargs))
 end
@@ -502,16 +509,17 @@ end
 @evaluate_function_arguments+=
 local fargs = {}
 for _,arg in ipairs(self.args) do
-	table.insert(fargs, arg.eval(env))
+	table.insert(fargs, arg.eval())
 end
 
-@create_new_environment_with_arguments+=
-local new_env = setmetatable({}, { __index = env })
-for i=1,#self.args do
-	new_env[env[self.name].args[i]] = { 
-		name = env[self.name].args[i], 
-		val = NumExpression(fargs[i])
-	}
+@assign_variables_to_args+=
+for i,arg in pairs(args) do
+	symTable[arg] = NumExpression(fargs[i])
+end
+
+@unassign_variable_to_args+=
+for i,arg in pairs(args) do
+	symTable[arg] = nil
 end
 
 @tokens+=
@@ -545,7 +553,7 @@ function self.priority() return priority_list["exp"] end
 ["exp"] = 70,
 
 @exp_exp_methods+=
-function self.eval(env) return math.pow(self.left.eval(env), self.right.eval(env)) end
+function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
 
 @mul_exp_methods+=
 function self.expand()
@@ -1864,7 +1872,7 @@ symTable[name] = exp
 local function printSymTable()
 	print("Symbol table:")
 	for name, sym in pairs(symTable) do
-		print(name .. " := " .. sym.val.toString())
+		print(name .. " := " .. sym.toString())
 	end
 end
 
@@ -2174,12 +2182,7 @@ answer = nil
 
 @save_parsed_in_global+=
 answer = exp
-local symEntry = {
-	name = "answer",
-	kind = "var",
-	val = exp
-}
-symTable["answer"] = symEntry
+symTable["answer"] = exp
 
 @show_result+=
 local res = exp.substitute().expand().combined()
@@ -2212,7 +2215,7 @@ else
 	expand(line)
 end
 
-@simplify+=
+@evaluate+=
 function evaluate()
 	@get_current_string
 	@parse_string
@@ -2224,7 +2227,7 @@ end
 evaluate = evaluate,
 
 @evaluate_expression_and_output+=
-local res = tostring(exp.eval(symTable))
+local res = tostring(exp.eval())
 vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
 
 @list_supported_functions+=
@@ -2316,12 +2319,12 @@ local taken = {}
 add_exp = computeDeterminant(t1.rows, t1.n, 1, taken)
 
 @mat_exp_methods+=
-function self.eval(env)
+function self.eval()
 	local new_rows = {}
 	for _,row in ipairs(self.rows) do
 		local new_cells = {}
 		for _,cell in ipairs(row) do
-			table.insert(new_cells, cell.eval(env))
+			table.insert(new_cells, cell.eval())
 		end
 		table.insert(new_rows, new_cells)
 	end

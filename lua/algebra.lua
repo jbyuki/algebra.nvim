@@ -156,7 +156,7 @@ function AddExpression(left, right)
 	local self = { kind = "addexp", left = left, right = right }
 	local collectUpperAddCombine
 	
-	function self.eval(env) return self.left.eval(env) + self.right.eval(env) end
+	function self.eval() return self.left.eval() + self.right.eval() end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -482,7 +482,7 @@ return self end
 
 function PrefixSubExpression(left) 
 	local self = { kind = "presubexp", left = left }
-	function self.eval(env) return -self.left.eval(env) end
+	function self.eval() return -self.left.eval() end
 	
 	function self.expand() 
 		local t1 = self.left.expand()
@@ -543,7 +543,7 @@ return self end
 
 function SubExpression(left, right)
 	local self = { kind = "subexp", left = left, right = right }
-	function self.eval(env) return self.left.eval(env) - self.right.eval(env) end
+	function self.eval() return self.left.eval() - self.right.eval() end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -616,7 +616,7 @@ function MulExpression(left, right)
 	
 	local collectUpperAddExpand
 	
-	function self.eval(env) return self.left.eval(env) * self.right.eval(env) end
+	function self.eval() return self.left.eval() * self.right.eval() end
 	function self.expand()
 		local collectLeft = {}
 		local collectRight = {}
@@ -874,7 +874,7 @@ return self end
 
 function DivExpression(left, right)
 	local self = { kind = "divexp", left = left, right = right }
-	function self.eval(env) return self.left.eval(env) / self.right.eval(env) end
+	function self.eval() return self.left.eval() / self.right.eval() end
 	function self.expand() 
 		local t1 = self.left.expand()
 		local t2 = self.right.expand()
@@ -937,7 +937,7 @@ return self end
 
 function NumExpression(num)
 	local self = { kind = "numexp", num = num }
-	function self.eval(env) return self.num end
+	function self.eval() return self.num end
 	function self.expand() 
 		return NumExpression(self.num)
 	end
@@ -971,9 +971,9 @@ return self end
 
 function SymExpression(sym)
 	local self = { kind = "symexp", sym = sym }
-	function self.eval(env) 
-		assert(env[self.sym], "symbol " .. self.sym .. " does not exist")
-		return env[self.sym].val.eval(env)
+	function self.eval() 
+		assert(symTable[self.sym], "symbol " .. self.sym .. " does not exist")
+		return symTable[self.sym].eval()
 	end
 	
 	
@@ -1021,22 +1021,29 @@ return self end
 
 function FunExpression(name, args)
 	local self = { kind = "funexp", name = name, args = args }
-	function self.eval(env) 
+	function self.eval() 
 		local fargs = {}
 		for _,arg in ipairs(self.args) do
-			table.insert(fargs, arg.eval(env))
+			table.insert(fargs, arg.eval())
 		end
 		
-		if env[self.name] and env[self.name].kind == "fun" then
-			local new_env = setmetatable({}, { __index = env })
-			for i=1,#self.args do
-				new_env[env[self.name].args[i]] = { 
-					name = env[self.name].args[i], 
-					val = NumExpression(fargs[i])
-				}
+		if symTable[self.name] then
+			local t1 = symTable[self.name]
+			local args = collectArgs(t1)
+			
+			-- print("arg list " .. vim.inspect(args))
+			-- print("t1 " .. vim.inspect(t1))
+			-- print("fargs " .. vim.inspect(fargs))
+			for i,arg in pairs(args) do
+				symTable[arg] = NumExpression(fargs[i])
 			end
 			
-			return env[self.name].val.eval(new_env)
+			local res = t1.eval()
+			for i,arg in pairs(args) do
+				symTable[arg] = nil
+			end
+			
+			return res
 		end
 		return funs[self.name](unpack(fargs))
 	end
@@ -1310,7 +1317,7 @@ return self end
 
 function ExpExpression(left, right)
 	local self = { kind = "expexp", left = left, right = right }
-	function self.eval(env) return math.pow(self.left.eval(env), self.right.eval(env)) end
+	function self.eval() return math.pow(self.left.eval(), self.right.eval()) end
 	
 	function self.toString() 
 		return putParen(self.left, self.priority()) .. "^" .. putParen(self.right, self.priority())
@@ -1498,12 +1505,12 @@ function MatrixExpression(rows, m, n)
 		return MatrixExpression(rows, self.m, self.n)
 	end
 	
-	function self.eval(env)
+	function self.eval()
 		local new_rows = {}
 		for _,row in ipairs(self.rows) do
 			local new_cells = {}
 			for _,cell in ipairs(row) do
-				table.insert(new_cells, cell.eval(env))
+				table.insert(new_cells, cell.eval())
 			end
 			table.insert(new_rows, new_cells)
 		end
@@ -1852,7 +1859,7 @@ end
 local function printSymTable()
 	print("Symbol table:")
 	for name, sym in pairs(symTable) do
-		print(name .. " := " .. sym.val.toString())
+		print(name .. " := " .. sym.toString())
 	end
 end
 
@@ -1889,12 +1896,7 @@ function expand(line)
 	end
 	
 	answer = exp
-	local symEntry = {
-		name = "answer",
-		kind = "var",
-		val = exp
-	}
-	symTable["answer"] = symEntry
+	symTable["answer"] = exp
 	
 	local res = exp.substitute().expand().combined()
 	local line = res.toString()
@@ -1949,14 +1951,9 @@ function evaluate()
 	end
 	
 	answer = exp
-	local symEntry = {
-		name = "answer",
-		kind = "var",
-		val = exp
-	}
-	symTable["answer"] = symEntry
+	symTable["answer"] = exp
 	
-	local res = tostring(exp.eval(symTable))
+	local res = tostring(exp.eval())
 	vim.api.nvim_buf_set_lines(0, -1, -1, true, { res })
 	
 end

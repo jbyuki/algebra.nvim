@@ -25,6 +25,7 @@ Usage
 
 * <kbd>F2</kbd>: simplify the current line
 * <kbd>F3</kbd>: evaluate the current line
+* <kbd>F4</kbd>: show LaTex of current line
 * <kbd>F5</kbd>: display the symbol table
 
 Example
