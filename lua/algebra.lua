@@ -1294,10 +1294,76 @@ function FunExpression(name, args)
 						for l=i,t1.n do
 							rows[k][l] = AddExpression(PrefixSubExpression(MulExpression(coeff, rows[i][l])), rows[k][l])
 						end
+						
 					end
 				end
 			end
 			
+			return res.combined()
+		end
+		
+		if self.name == "inv" then
+			assert(#fargs == 1, "inv() expects 1 argument found " .. #fargs)
+		
+			local t1 = fargs[1]
+			if t1.kind == "symexp" then
+				assert(symTable[t1.sym], t1.sym .. " symbol not found")
+				t1 = symTable[t1.sym]
+			end
+		
+			assert(t1.kind == "matexp", "inv() expected matrix, found " .. t1.kind)
+			assert(t1.n == t1.m, "inv() expected square matrix, found " .. t1.m .. " x " .. t1.n)
+		
+			for i = 1,t1.m do
+				for j = t1.n+1, 2*t1.n do
+					t1.rows[i][j] = ((j-t1.n) == i and NumExpression(1)) or NumExpression(0)
+				end
+			end
+			t1.n = t1.n*2
+			
+			local res = t1.expand()
+			local rows = res.rows;
+			for i=1,t1.m do
+				local s
+				for l=i,t1.m do
+					rows[l][i] = rows[l][i].expand().combined()
+					if not isZero(rows[l][i]) then
+						s = l
+						break
+					end
+				end
+				
+				assert(s, "inv() could not invert matrix")
+				
+				if s ~= i then
+					for o=i,t1.n do
+						rows[s][o], rows[i][o] = rows[i][l], rows[s][l]
+					end
+				end
+				
+				local coeff = rows[i][i].combined()
+				for l=i,t1.n do
+					rows[i][l] = DivExpression(rows[i][l], coeff)
+				end
+				
+				for k=1,t1.m do
+					if k ~= i then
+						local coeff = rows[k][i]
+						
+						for l=i,t1.n do
+							rows[k][l] = AddExpression(PrefixSubExpression(MulExpression(coeff, rows[i][l])), rows[k][l])
+						end
+						
+					end
+				end
+			end
+			
+			for i = 1,res.m do
+				for j = 1,res.n/2 do
+					table.remove(res.rows[i], 1)
+				end
+			end
+			res.n = res.n/2
 			return res.combined()
 		end
 		

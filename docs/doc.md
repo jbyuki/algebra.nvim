@@ -242,4 +242,14 @@ A := [1,2,3;3,4,5]
 elim(A)
 ```
 
+### `inv(x)`
+Computes the inverse matrix if it exists
+
+Arguments:
+* `x`: squaresquare  matrix expression
+```
+A := [1,2,3;3,4,5]
+inv(A)
+```
+
 

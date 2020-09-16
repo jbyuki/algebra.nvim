@@ -2719,7 +2719,7 @@ if self.name == "elim" then
 
 	assert(t1.kind == "matexp", "elim() expected matrix, found " .. t1.kind)
 
-	@inverse_matrix_using_gaussian_elimination
+	@gaussian_elimination
 	return res.combined()
 end
 
@@ -2734,7 +2734,7 @@ A := [1,2,3;3,4,5]
 elim(A)
 ```
 
-@inverse_matrix_using_gaussian_elimination+=
+@gaussian_elimination+=
 local res = t1.expand()
 local rows = res.rows;
 for i=1,t1.m do
@@ -2781,3 +2781,49 @@ local coeff = rows[k][i]
 for l=i,t1.n do
 	rows[k][l] = AddExpression(PrefixSubExpression(MulExpression(coeff, rows[i][l])), rows[k][l])
 end
+
+@apply_functions_for_expand+=
+if self.name == "inv" then
+	assert(#fargs == 1, "inv() expects 1 argument found " .. #fargs)
+
+	local t1 = fargs[1]
+	if t1.kind == "symexp" then
+		assert(symTable[t1.sym], t1.sym .. " symbol not found")
+		t1 = symTable[t1.sym]
+	end
+
+	assert(t1.kind == "matexp", "inv() expected matrix, found " .. t1.kind)
+	assert(t1.n == t1.m, "inv() expected square matrix, found " .. t1.m .. " x " .. t1.n)
+
+	@augument_matrix
+	@gaussian_elimination
+	@extract_inverse_matrix
+	return res.combined()
+end
+
+@functions_reference+=
+### `inv(x)`
+Computes the inverse matrix if it exists
+
+Arguments:
+* `x`: squaresquare  matrix expression
+```
+A := [1,2,3;3,4,5]
+inv(A)
+```
+
+@augument_matrix+=
+for i = 1,t1.m do
+	for j = t1.n+1, 2*t1.n do
+		t1.rows[i][j] = ((j-t1.n) == i and NumExpression(1)) or NumExpression(0)
+	end
+end
+t1.n = t1.n*2
+
+@extract_inverse_matrix+=
+for i = 1,res.m do
+	for j = 1,res.n/2 do
+		table.remove(res.rows[i], 1)
+	end
+end
+res.n = res.n/2
