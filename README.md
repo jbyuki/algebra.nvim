@@ -20,6 +20,7 @@ Install
 
 Install using your favorite plugin manager. No additional dependencies
 
+
 Usage
 -----
 
@@ -42,3 +43,8 @@ rot(F)
 G(x,y,z) = x^2 + y*z + z^3
 grad(G)
 ```
+
+Documentation
+-------------
+
+Documentation can be found [here](docs/doc.md)
