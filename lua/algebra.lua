@@ -978,6 +978,9 @@ function SymExpression(sym)
 	
 	
 	function self.expand() 
+		if symTable[self.sym] then
+			return symTable[self.sym].expand()
+		end
 		return SymExpression(self.sym) 
 	end
 	function self.toString() 

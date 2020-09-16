@@ -624,6 +624,9 @@ function self.expand()
 end
 @sym_exp_methods+=
 function self.expand() 
+	if symTable[self.sym] then
+		return symTable[self.sym].expand()
+	end
 	return SymExpression(self.sym) 
 end
 @num_exp_methods+=
