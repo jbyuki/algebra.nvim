@@ -246,9 +246,9 @@ elim(A)
 Computes the inverse matrix if it exists
 
 Arguments:
-* `x`: squaresquare  matrix expression
+* `x`: square  matrix expression
 ```
-A := [1,2,3;3,4,5]
+A := [1,2;3,4]
 inv(A)
 ```
 
