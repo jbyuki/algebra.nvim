@@ -18,6 +18,14 @@ return {
 @export_symbols
 }
 
+@doc.md=
+@title
+@introduction
+@usage
+@token_reference
+@operators_reference
+@functions_reference
+
 @declare_functions+=
 local expand
 
@@ -103,6 +111,7 @@ elseif c == "-" then table.insert(tokens, SubToken()) i = i+1
 elseif c == "*" then table.insert(tokens, MulToken()) i = i+1
 elseif c == "/" then table.insert(tokens, DivToken()) i = i+1
 
+
 @tokens+=
 local function RParToken() local self = { kind = "rpar" }
 	@rpar_token_methods
@@ -114,6 +123,15 @@ return self end
 @tokenize_par+=
 elseif c == "(" then table.insert(tokens, LParToken()) i = i+1
 elseif c == ")" then table.insert(tokens, RParToken()) i = i+1
+	
+@token_reference+=
+### `parenthesis`
+Used to prioritize expression or used to evaluate a function.
+Examples:
+```
+(1+x)^2
+cos(10)
+```
 
 @tokens+=
 local function NumToken(num) local self = { kind = "num", num = num }
@@ -125,6 +143,15 @@ elseif string.match(c, "%d") then
 	local parsed = string.match(string.sub(str, i), "%d+%.?%d*")
 	i = i+string.len(parsed)
 	table.insert(tokens, NumToken(tonumber(parsed))) 
+
+@token_reference+=
+### `numbers`
+Numbers are all represented as floating points.
+Examples:
+```
+2
+10.3
+```
 
 @script_variables+=
 events = {}
@@ -146,6 +173,16 @@ elseif string.match(c, "[%a_]") then
 	@get_all_char_sym
 	@create_num_token_if_constant
 	@otherwise_crete_sym_token
+
+@token_reference+=
+### `symbols`
+Symbols are reprensented as `[alphanumeric | _]`
+Examples:
+```
+F
+_1
+d1
+```
 
 @add_mul_token_if_num_just_before+=
 if #tokens > 0 and tokens[#tokens].kind == "num" then
@@ -178,6 +215,18 @@ if string.match(parsed, "^" .. nocase("pi") .. "$") then
 	table.insert(tokens, NumToken(3.14159265258979))
 elseif string.match(parsed, "^" .. nocase("e") .. "$") then
 	table.insert(tokens, NumToken(2.71828182845905))
+
+@token_reference+=
+### `constants`
+The following constants are defined:
+@constants_reference
+Examples
+```
+pi
+```
+@constants_reference+=
+* `pi` : 3.141592...
+* `e` : 2.7182...
 
 @otherwise_crete_sym_token+=
 else
@@ -252,6 +301,15 @@ function AddExpression(left, right)
 	@add_exp_methods
 return self end
 
+@operators_reference+=
+### `Addition`
+Examples:
+```
+1 + 10
+1 + x
+y + x
+```
+
 @add_token_methods+=
 function self.infix(left)
 	local t = parse(self.priority())
@@ -288,6 +346,14 @@ function self.prefix()
 	return PrefixSubExpression(t)
 end
 
+@operators_reference+=
+### `Prefix negative`
+Examples:
+```
+-10
+-2.71
+```
+
 @declare_functions+=
 local SubExpression
 
@@ -296,6 +362,14 @@ function SubExpression(left, right)
 	local self = { kind = "subexp", left = left, right = right }
 	@sub_exp_methods
 return self end
+
+@operators_reference+=
+### `Substraction`
+Examples:
+```
+1-0
+x-1
+```
 
 @sub_token_methods+=
 function self.infix(left)
@@ -324,6 +398,14 @@ function MulExpression(left, right)
 	@mul_exp_methods
 return self end
 
+@operators_reference+=
+### `Multiplication`
+Examples:
+```
+10*(x+1)
+8*x
+```
+
 @mul_token_methods+=
 function self.infix(left)
 	local t = parse(self.priority())
@@ -345,6 +427,14 @@ function DivExpression(left, right)
 	local self = { kind = "divexp", left = left, right = right }
 	@div_exp_methods
 return self end
+
+@operators_reference+=
+### `Divison`
+Examples:
+```
+10/8
+x/y
+```
 
 @div_token_methods+=
 function self.infix(left)
@@ -450,6 +540,35 @@ local funs = {
 	@list_supported_functions
 }
 
+@operators_reference+=
+### `Function call`
+The following functions are built-in:
+@builtin_function_list
+Examples:
+```
+cosd(90)
+sin(9)
+```
+
+Additionally user defined functions can be called.
+A function is defined simplify with an assignement such as:
+```
+A := x^2
+```
+The interpreter will automatically infer paramters to the function
+when the symbol is **not** defined. When the arguments list is infered,
+it is sorted lexically. For example, this function will have
+as arguments list `B(x,y)`.
+```
+B := y+x
+```
+The user defined function can then be called using the familiar function
+call syntax.
+```
+B(10, 1)
+```
+
+
 @lpar_token_methods+=
 function self.infix(left)
 	local args = {}
@@ -488,6 +607,20 @@ log = math.log10,
 exp = math.exp,
 atan2 = math.atan2,
 abs = math.abs,
+
+@builtin_function_list+=
+* `sin(x)`: sine in radians
+* `cos(x)`: cosine in radians
+* `tan(x)`: tangent in radians
+* `sqrt(x)`: square root
+* `asin(x)`: inverse sine in radians
+* `acos(x)`: inverse cosine in radians
+* `atan(x)`: inverse tangent in radians
+* `ln(x)`: natural logarithm or log to the base e
+* `log(x)`: logarithm in the base 10
+* `exp(x)`: exponential or `f(x) = e^x`
+* `atan2(x,y)`: two argument variant of tangent
+* `abs(x)`: absolute value
 
 @fun_exp_methods+=
 function self.eval() 
@@ -538,6 +671,14 @@ function ExpExpression(left, right)
 	local self = { kind = "expexp", left = left, right = right }
 	@exp_exp_methods
 return self end
+
+@operators_reference+=
+### `exponentation`
+Examples:
+```
+2^5
+(x+1)^2
+```
 
 @exp_token_methods+=
 function self.infix(left)
@@ -1594,6 +1735,18 @@ return self end
 @make_matrix_expression+=
 local exp = MatrixExpression(rows, #rows, curlen)
 
+@operators_reference+=
+### `Vector, matrix`
+The expression is delimited by `[]`.
+Rows are delimited by `;`.
+Cells in a row are delimited by `,`.
+Examples:
+```
+[1,2]
+[1;7]
+[1,2;3,4]
+```
+
 @mat_exp_methods+=
 function self.toString()
 	local rowsString = {}
@@ -1962,6 +2115,17 @@ if self.name == "grad" then
 	return MatrixExpression(rows, #args, 1).expand().combined()
 end
 
+@functions_reference+=
+### `grad(x)`
+Compute the gradient in x, y and z
+Arguments:
+* `x`: any expression
+```
+grad(x^2+y*z)
+A := x^2+z*y+y
+grad(A)
+```
+
 @declare_functions+=
 local collectArgs
 
@@ -2062,6 +2226,16 @@ if self.name == "div" then
 	return exp_add.expand().combined()
 end
 
+@functions_reference+=
+### `div(x)`
+Compute the divergence in x, y and z.
+Arguments:
+* `x`: matrix expression
+```
+A := [x*y;x;z]
+div(A)
+```
+
 @apply_div+=
 for _, arg in ipairs(args) do
 	local t = t1.derive(arg)
@@ -2088,6 +2262,16 @@ if self.name == "rot" then
 	return MatrixExpression(rows, 3, 1)
 end
 
+@functions_reference+=
+### `rot(x)`
+Compute the rotational in x, y and z.
+Arguments:
+* `x`: 3 x 1 matrix expression 
+```
+A := [x*y;x;z]
+rot(A)
+```
+
 @apply_rot+=
 rows = {}
 rows[1] = { AddExpression(t1.rows[3][1].derive(args[2]), PrefixSubExpression(t1.rows[2][1].derive(args[3]))) }
@@ -2109,6 +2293,16 @@ if self.name == "laplace" then
 	@apply_laplace
 	return exp_add
 end
+
+@functions_reference+=
+### `laplace(x)`
+Laplace operator in x, y and z.
+Arguments:
+* `x`: any expression
+```
+A := x^2+y^2+z^2
+laplace(A)
+```
 
 
 @apply_laplace+=
@@ -2238,6 +2432,14 @@ acosd = function(x) return math.acos(x)*(180.0/math.pi) end,
 asind = function(x) return math.asin(x)*(180.0/math.pi) end,
 atand = function(x) return math.atan(x)*(180.0/math.pi) end,
 
+@builtin_function_list+=
+* `sind(x)`: sine in degrees
+* `cosd(x)`: cosine in degrees
+* `tand(x)`: tangent in degress
+* `asind(x)`: inverse sine in degrees
+* `acosd(x)`: inverse cosine in degrees
+* `atand(x)`: inverse tangent in degress
+
 @show_latex+=
 local function show_latex()
 	@get_current_string
@@ -2274,6 +2476,17 @@ if self.name == "det" then
 	@compute_matrix_determinant
 	return add_exp
 end
+
+@functions_reference+=
+### `det(x)`
+Compute the determinant of a square matrix
+Arguments:
+* `x`: square matrix expression
+```
+A := [1,2;3,4]
+det(A)
+```
+
 
 @declare_functions+=
 local function computeDeterminant(rows, n, i, taken, add_exp, mul_exp)
@@ -2340,6 +2553,16 @@ if self.name == "transpose" or self.name == "T" then
 	return MatrixExpression(rows, t1.n, t1.m)
 end
 
+@functions_reference+=
+### `transpose(x)`
+Transpose the matrix
+Arguments:
+* `x`: matrix expression
+```
+A := [1,2;3,4]
+transpose(A)
+```
+
 @transpose_matrix+=
 local rows = {}
 for j=1,t1.n do 
@@ -2363,6 +2586,18 @@ if self.name == "dot" then
 	@dot_vectors
 	return add_exp
 end
+
+@functions_reference+=
+### `dot(x,y)`
+Compute the dot products of two column vectors.
+Arguments:
+* `x`: n x 1 matrix expression
+* `y`: n x 1 matrix expression
+```
+A := [1;2]
+B := [3;4]
+dot(A, B)
+```
 
 @dot_vectors+=
 local add_exp
@@ -2388,8 +2623,35 @@ if self.name == "cross" then
 	return MatrixExpression(rows, 3, 1)
 end
 
+@functions_reference+=
+### `cross(x,y)`
+Compute the cross products of two column vectors.
+Arguments:
+* `x`: 3 x 1 matrix expression
+* `y`: 3 x 1 matrix expression
+```
+A := [0;0;1]
+B := [1;0;1]
+cross(A, B)
+```
+
 @cross_vectors+=
 local rows = {}
 rows[1] = { AddExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[3][1].expand()), PrefixSubExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[2][1].expand()))) }
 rows[2] = { AddExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[1][1].expand()), PrefixSubExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[3][1].expand()))) }
 rows[3] = { AddExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[2][1].expand()), PrefixSubExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[1][1].expand()))) }
+
+@title+=
+algebra.nvim
+============
+
+@introduction+=
+algebra.nvim is a plugin for neovim which allows to manipulate,
+simplify and evaluate symbolic expressions. 
+
+@usage+=
+Default keybindings:
+* <kdb>F2</kbd> : Simplify the current expression
+* <kdb>F3</kbd> : Evaluate the current expression
+* <kdb>F4</kbd> : Output the current expression as LaTex
+* <kdb>F5</kbd> : Show the symbol table

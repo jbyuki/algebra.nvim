@@ -1143,7 +1143,6 @@ function FunExpression(name, args)
 			return exp_add
 		end
 		
-		
 		if self.name == "det" then
 			assert(#fargs == 1, "det() expects 1 argument found " .. #fargs)
 		
@@ -1212,6 +1211,7 @@ function FunExpression(name, args)
 			rows[1] = { AddExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[3][1].expand()), PrefixSubExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[2][1].expand()))) }
 			rows[2] = { AddExpression(MulExpression(t1.rows[3][1].expand(),t2.rows[1][1].expand()), PrefixSubExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[3][1].expand()))) }
 			rows[3] = { AddExpression(MulExpression(t1.rows[1][1].expand(),t2.rows[2][1].expand()), PrefixSubExpression(MulExpression(t1.rows[2][1].expand(),t2.rows[1][1].expand()))) }
+			
 			return MatrixExpression(rows, 3, 1)
 		end
 		
@@ -1727,11 +1727,12 @@ function tokenize(str)
 		elseif c == "*" then table.insert(tokens, MulToken()) i = i+1
 		elseif c == "/" then table.insert(tokens, DivToken()) i = i+1
 		
+		
 		elseif c == "^" then table.insert(tokens, ExpToken()) i = i+1
 		
 		elseif c == "(" then table.insert(tokens, LParToken()) i = i+1
 		elseif c == ")" then table.insert(tokens, RParToken()) i = i+1
-		
+			
 		elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
 		elseif c == "]" then table.insert(tokens, RBraToken()) i = i+1
 		elseif c == "," then table.insert(tokens, CommaToken()) i = i+1
