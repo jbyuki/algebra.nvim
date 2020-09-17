@@ -817,25 +817,9 @@ function self.expand()
 end
 @div_exp_methods+=
 function self.expand() 
-	@remove_if_divide_by_one
-	@combine_terms_upper_mul_for_div
-
-	-- print("collectAllLeft " .. vim.inspect(collectAllLeft))
-	-- print("collectAllRight " .. vim.inspect(collectAllRight))
-	-- print("coeffRight " .. coeffRight)
-	-- print("coeffLeft " .. coeffLeft)
-
-	local exp_num, exp_div
-	@assert_no_matrices
-	@combine_div_coeff
-	@combine_div_unknown_power
-	@combine_div_rest
-
-	exp_num = exp_num or NumExpression(1)
-	if not exp_den then
-		return exp_num
-	end
-	return DivExpression(exp_num, exp_den)
+	local t1 = self.left.expand()
+	local t2 = self.right.expand()
+	return DivExpression(t1, t2)
 end
 
 @remove_if_divide_by_one+=
@@ -917,13 +901,13 @@ end
 @search_if_same_term_appears_in_numerator+=
 for t, p in pairs(collectAllRight) do
 	if t == term then
-		powerDen = p
+		powerNum = p
 		break
 	end
 end
 
 @add_term_if_zero_or_less_at_numerator+=
-local powerSum = powerNum - power
+local powerSum = power - powerNum
 if powerSum > 0 then
 	local exp_exp = SymExpression(term)
 	if powerSum ~= 1 then
@@ -1514,10 +1498,29 @@ end
 
 @div_exp_methods+=
 function self.combined() 
-	local t1 = self.left.combined()
-	local t2 = self.right.combined()
-	return DivExpression(t1, t2)
+	@remove_if_divide_by_one
+	@combine_terms_upper_mul_for_div
+
+	-- print("collectAllLeft " .. vim.inspect(collectAllLeft))
+	-- print("collectAllRight " .. vim.inspect(collectAllRight))
+	-- print("coeffLeft " .. coeffLeft)
+	-- print("coeffRight " .. coeffRight)
+	-- print("restLeft " .. vim.inspect(restLeft))
+	-- print("restRight " .. vim.inspect(restRight))
+
+	local exp_num, exp_div
+	@assert_no_matrices
+	@combine_div_coeff
+	@combine_div_unknown_power
+	@combine_div_rest
+
+	exp_num = exp_num or NumExpression(1)
+	if not exp_den then
+		return exp_num
+	end
+	return DivExpression(exp_num, exp_den)
 end
+
 @exp_exp_methods+=
 function self.combined() 
 	local t1 = self.left.combined()

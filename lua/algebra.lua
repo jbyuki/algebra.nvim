@@ -917,6 +917,15 @@ function DivExpression(left, right)
 		return DivExpression(t1,t2)
 	end
 	function self.expand() 
+		local t1 = self.left.expand()
+		local t2 = self.right.expand()
+		return DivExpression(t1, t2)
+	end
+	
+	function self.toString() 
+		return putParen(self.left, self.priority()) .. "/" .. putParen(self.right, self.priority())
+	end
+	function self.combined() 
 		if self.right.kind == "numexp" and self.right.num == 1 then
 			return self.left.combined()
 		end
@@ -931,8 +940,10 @@ function DivExpression(left, right)
 	
 		-- print("collectAllLeft " .. vim.inspect(collectAllLeft))
 		-- print("collectAllRight " .. vim.inspect(collectAllRight))
-		-- print("coeffRight " .. coeffRight)
 		-- print("coeffLeft " .. coeffLeft)
+		-- print("coeffRight " .. coeffRight)
+		-- print("restLeft " .. vim.inspect(restLeft))
+		-- print("restRight " .. vim.inspect(restRight))
 	
 		local exp_num, exp_div
 		assert(#collectMatRight == 0 and #collectMatLeft == 0, "matrices division is not supported")
@@ -976,12 +987,12 @@ function DivExpression(left, right)
 				local powerNum = 0 
 				for t, p in pairs(collectAllRight) do
 					if t == term then
-						powerDen = p
+						powerNum = p
 						break
 					end
 				end
 				
-				local powerSum = powerNum - power
+				local powerSum = power - powerNum
 				if powerSum > 0 then
 					local exp_exp = SymExpression(term)
 					if powerSum ~= 1 then
@@ -1008,14 +1019,6 @@ function DivExpression(left, right)
 		return DivExpression(exp_num, exp_den)
 	end
 	
-	function self.toString() 
-		return putParen(self.left, self.priority()) .. "/" .. putParen(self.right, self.priority())
-	end
-	function self.combined() 
-		local t1 = self.left.combined()
-		local t2 = self.right.combined()
-		return DivExpression(t1, t2)
-	end
 	function self.derive(sym) 
 		-- (u'v - uv')/v^2
 		local t1 = self.left.derive(sym)
