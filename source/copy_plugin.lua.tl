@@ -1,6 +1,4 @@
 @*=
-@requres
-@script_variables
 @copy_files
 
 @copy_files+=

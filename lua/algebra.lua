@@ -34,6 +34,8 @@ local ExpExpression
 
 local putParen
 
+local collectUpperMul
+
 local copysign
 
 local countMap
@@ -119,6 +121,8 @@ local priority_list = {
 	
 	["mat"] = 110,
 	
+	["eq"] = 1,
+	
 }
 
 local funs = {
@@ -161,6 +165,8 @@ function AddExpression(left, right)
 		local t2 = self.right.eval()
 		if t1.kind == "numexp" and t2.kind == "numexp" then
 			return NumExpression(t1.num+t2.num)
+		elseif t1.kind == "matexp" and t2.kind == "matexp" then
+			return MulExpression(t1, t2).combinedMatrix().eval()
 		end
 		return AddExpression(t1,t2)
 	end
@@ -485,6 +491,16 @@ function AddExpression(left, right)
 		self.left.collectUnknowns(unknowns)
 		self.right.collectUnknowns(unknowns)
 	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "addexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
+		print(prefix .. "right {")
+		self.right.introspect(prefix .. "  ")
+		print(prefix .. "}")
+	end
 return self end
 
 function PrefixSubExpression(left) 
@@ -510,9 +526,12 @@ function PrefixSubExpression(left)
 			return t1.left.combined()
 		elseif isZero(t1) then
 			return t1.combined()
+		elseif t1.kind == "numexp" then
+			return NumExpression(-t1.num)
 		end
 		return PrefixSubExpression(t1)
 	end
+	
 	function self.derive(sym) 
 		local t1 = self.left.derive(sym)
 		if isZero(t1) then return t1 end
@@ -551,6 +570,13 @@ function PrefixSubExpression(left)
 	end
 	function self.collectUnknowns(unknowns) 
 		self.left.collectUnknowns(unknowns)
+	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "presubexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
 	end
 return self end
 
@@ -628,12 +654,21 @@ function SubExpression(left, right)
 		self.left.collectUnknowns(unknowns)
 		self.right.collectUnknowns(unknowns)
 	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "subexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
+		print(prefix .. "right {")
+		self.right.introspect(prefix .. "  ")
+		print(prefix .. "}")
+	end
+	
 return self end
 
 function MulExpression(left, right)
 	local self = { kind = "mulexp", left = left, right = right }
-	local collectUpperMul
-	
 	local collectUpperAddExpand
 	
 	function self.eval() 
@@ -641,6 +676,8 @@ function MulExpression(left, right)
 		local t2 = self.right.eval()
 		if t1.kind == "numexp" and t2.kind == "numexp" then
 			return NumExpression(t1.num*t2.num)
+		elseif t1.kind == "matexp" and t2.kind == "matexp" then
+			return SubExpression(t1, t2).combinedMatrix().eval()
 		end
 		return MulExpression(t1,t2)
 	end
@@ -691,42 +728,6 @@ function MulExpression(left, right)
 			return putParen(self.left, self.priority()) .. "*" .. putParen(self.right, self.priority())
 		end
 	end
-	function collectUpperMul(root, coeff, collect, collectMat, rest)
-		if root.kind == "mulexp" then
-			coeff = collectUpperMul(root.left, coeff, collect, collectMat, rest)
-			coeff = collectUpperMul(root.right, coeff, collect, collectMat, rest)
-		else
-			local combined = root.combined()
-			if combined.kind == "presubexp" then
-				coeff = coeff * -1
-				combined = combined.left
-			end
-			if combined.kind == "symexp" then
-				if not collect[combined.sym] then
-					collect[combined.sym] = 0
-				end
-				collect[combined.sym] = copysign(math.abs(collect[combined.sym])+1, collect[combined.sym])
-				
-			elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
-				local sym, num = combined.left.sym, combined.right.num
-				if not collect[combined.left.sym] then
-					collect[combined.left.sym] = 0
-				end
-				collect[combined.left.sym] = copysign(math.abs(collect[combined.left.sym]) + combined.right.num, collect[combined.left.sym])
-				
-			elseif combined.kind == "numexp" then
-				coeff = coeff * combined.num
-			elseif combined.kind == "matexp" then
-				table.insert(collectMat, combined)
-			
-			else
-				table.insert(rest, combined)
-			end
-			
-		end
-		return coeff
-	end
-	
 	function self.combined() 
 		if self.left.kind == "numexp" and self.left.num == 1 then
 			return self.right.combined()
@@ -766,12 +767,8 @@ function MulExpression(left, right)
 		for term, power in pairs(collectAll) do
 			if power ~= 0 then
 				local exp_pow = SymExpression(term)
-				if math.abs(power) ~= 1 then
-					exp_pow = ExpExpression(exp_pow, NumExpression(math.abs(power)))
-				end
-		
-				if power < 0 then
-					exp_pow = PrefixSubExpression(exp_pow)
+				if power ~= 1 then
+					exp_pow = ExpExpression(exp_pow, NumExpression(power))
 				end
 		
 				if not exp_mul then
@@ -825,7 +822,7 @@ function MulExpression(left, right)
 		end
 		
 	
-		exp_mul = exp_mul or NumExpression(0)
+		exp_mul = exp_mul or NumExpression(1)
 		
 		return exp_mul
 	end
@@ -897,6 +894,16 @@ function MulExpression(left, right)
 		self.left.collectUnknowns(unknowns)
 		self.right.collectUnknowns(unknowns)
 	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "mulexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
+		print(prefix .. "right {")
+		self.right.introspect(prefix .. "  ")
+		print(prefix .. "}")
+	end
 return self end
 
 function DivExpression(left, right)
@@ -910,10 +917,97 @@ function DivExpression(left, right)
 		return DivExpression(t1,t2)
 	end
 	function self.expand() 
-		local t1 = self.left.expand()
-		local t2 = self.right.expand()
-		return DivExpression(t1, t2)
+		if self.right.kind == "numexp" and self.right.num == 1 then
+			return self.left.combined()
+		end
+		
+		local collectAllRight, collectAllLeft = {}, {}
+		local restRight, restLeft = {}, {}
+		local coeffRight, coeffLeft = 1, 1
+		local collectMatRight, collectMatLeft = {}, {}
+		coeffLeft = collectUpperMul(self.left, coeffLeft, collectAllLeft, collectMatLeft, restLeft)
+		coeffRight = collectUpperMul(self.right, coeffRight, collectAllRight, collectMatRight, restRight)
+		
+	
+		-- print("collectAllLeft " .. vim.inspect(collectAllLeft))
+		-- print("collectAllRight " .. vim.inspect(collectAllRight))
+		-- print("coeffRight " .. coeffRight)
+		-- print("coeffLeft " .. coeffLeft)
+	
+		local exp_num, exp_div
+		assert(#collectMatRight == 0 and #collectMatLeft == 0, "matrices division is not supported")
+		
+		assert(coeffRight ~= 0, "division by zero")
+		if coeffLeft == 0 then
+			return NumExpression(0)
+		end
+		local coeffSign = (coeffLeft * coeffRight < 0 and -1)  or 1
+		local d = gcd(math.abs(coeffRight), math.abs(coeffLeft))
+		coeffLeft = math.abs(coeffLeft) / d
+		coeffRight = math.abs(coeffRight) / d
+		
+		exp_num = (coeffLeft ~= 1 and NumExpression(coeffLeft)) or nil
+		exp_den = (coeffRight ~= 1 and NumExpression(coeffRight)) or nil
+		
+		for term, power in pairs(collectAllLeft) do
+			if power ~= 0 then
+				local powerDen = 0 
+				for t, p in pairs(collectAllRight) do
+					if t == term then
+						powerDen = p
+						break
+					end
+				end
+				
+				local powerSum = power - powerDen
+				if powerSum > 0 then
+					local exp_exp = SymExpression(term)
+					if powerSum ~= 1 then
+						exp_exp = ExpExpression(exp_exp, NumExpression(powerSum))
+					end
+					exp_num = (exp_num and MulExpression(exp_num, exp_exp)) or exp_exp
+				end
+				
+			end
+		end
+		
+		for term, power in pairs(collectAllRight) do
+			if power ~= 0 then
+				local powerNum = 0 
+				for t, p in pairs(collectAllRight) do
+					if t == term then
+						powerDen = p
+						break
+					end
+				end
+				
+				local powerSum = powerNum - power
+				if powerSum > 0 then
+					local exp_exp = SymExpression(term)
+					if powerSum ~= 1 then
+						exp_exp = ExpExpression(exp_exp, NumExpression(powerSum))
+					end
+					exp_den = (exp_den and MulExpression(exp_den, exp_exp)) or exp_exp
+				end
+				
+			end
+		end
+		
+		for _,term in ipairs(restLeft) do
+			exp_num = (exp_num and MulExpression(exp_num, term)) or term
+		end
+		for _,term in ipairs(restRight) do
+			exp_den = (exp_den and MulExpression(exp_den, term)) or term
+		end
+		
+	
+		exp_num = exp_num or NumExpression(1)
+		if not exp_den then
+			return exp_num
+		end
+		return DivExpression(exp_num, exp_den)
 	end
+	
 	function self.toString() 
 		return putParen(self.left, self.priority()) .. "/" .. putParen(self.right, self.priority())
 	end
@@ -967,6 +1061,16 @@ function DivExpression(left, right)
 		return DivExpression(t1, t2)
 	end
 	
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "divexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
+		print(prefix .. "right {")
+		self.right.introspect(prefix .. "  ")
+		print(prefix .. "}")
+	end
 return self end
 
 function NumExpression(num)
@@ -1002,6 +1106,11 @@ function NumExpression(num)
 	end
 	function self.combinedMatrix() 
 		return NumExpression(self.num)
+	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "numexp")
+		print(prefix .. "num " .. self.num)
 	end
 return self end
 
@@ -1052,6 +1161,11 @@ function SymExpression(sym)
 	end
 	function self.combinedMatrix() 
 		return SymExpression(self.sym)
+	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "symexp")
+		print(prefix .. "name " .. self.sym)
 	end
 return self end
 
@@ -1364,6 +1478,7 @@ function FunExpression(name, args)
 				end
 			end
 			res.n = res.n/2
+			
 			return res.combined()
 		end
 		
@@ -1465,6 +1580,15 @@ function FunExpression(name, args)
 		end
 		return FunExpression(self.name, fargs)
 	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "funexp")
+		for i, arg in ipairs(self.args) do
+			print(prefix .. "args[" .. i .. "] {")
+			arg.introspect(prefix .. "  ")
+			print(prefix .. "}")
+		end
+	end
 return self end
 
 function ExpExpression(left, right)
@@ -1474,6 +1598,8 @@ function ExpExpression(left, right)
 		local t2 = self.right.eval()
 		if t1.kind == "numexp" and t2.kind == "numexp" then
 			return math.pow(t1.num, t2.num) 
+		elseif t1.kind == "matexp" and t2.kind == "numexp" then
+			return ExpExpression(t1, t2).combinedMatrix().eval()
 		end
 		return ExpExpression(t1, t2)
 	end
@@ -1561,6 +1687,16 @@ function ExpExpression(left, right)
 		return ExpExpression(t1, t2)
 	end
 	
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "expexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
+		print(prefix .. "right {")
+		self.right.introspect(prefix .. "  ")
+		print(prefix .. "}")
+	end
 return self end
 
 function MatrixExpression(rows, m, n)
@@ -1675,6 +1811,61 @@ function MatrixExpression(rows, m, n)
 		end
 		return MatrixExpression(new_rows, self.m, self.n)
 	end
+	
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "matexp")
+		for i=1,self.m do
+			for j=1,self.n do
+				print(prefix .. "rows[" .. i .. "][" .. j .. "] {")
+				self.rows[i][j].introspect(prefix .. "  ")
+				print("}")
+			end
+		end
+	end
+return self end
+
+function EqualExpression(left, right) 
+	local self = { kind = "eqexp", left = left, right = right }
+	function self.toString()
+		local t1 = self.left.toString()
+		local t2 = self.right.toString()
+		return t1 .. " = " .. t2
+	end
+	
+	function self.substitute()
+		return EqualExpression(self.left.substitute(), self.right.substitute())
+	end
+	function self.combined()
+		return EqualExpression(self.left.combined(), self.right.combined())
+	end
+	function self.expand()
+		return EqualExpression(self.left.expand(), self.right.expand())
+	end
+	
+	-- @apply_functions_for_expand+=
+	-- if self.name == "solve" then
+	-- 	assert(#fargs > 0, "solve() expects more than no 0 argument found " .. #fargs)
+	-- 
+	-- 	@get_solve_arguments_and_check_equations
+	-- 	@collect_unknowns_for_solve
+	-- 	@from_equations_build_matrix
+	-- 	@solve_matrix_for_solve
+	-- 	@build_matrix_with_solve_solutions
+	-- 
+	-- 	return sol_exp
+	-- end
+	-- 
+	-- @get_solve_arguments_and_check_equations+=
+	-- local eargs = {}
+	-- for _, arg in ipairs(fargs) do 
+	-- 	local t = arg
+	-- 	if t.kind == "symexp" then
+	-- 		assert(symTable[t.sym], "undefined symbol " .. t.sym)
+	-- 		t = symTable[t.sym]
+	-- 	end
+	-- 	assert(
+	-- end
 	
 return self end
 
@@ -1870,6 +2061,19 @@ local function SemiToken() local self = { kind = "semi" }
 	function self.priority() return priority_list["semi"] end
 return self end
 
+-- right bracket
+local function EqualToken() local self = { kind = "equal" }
+	function self.infix(left)
+		local t = parse(self.priority())
+		if not t then
+			return nil
+		end
+		return EqualExpression(left, t)
+	end
+	function self.priority() return priority_list["eq"] end
+	
+return self end
+
 
 function tokenize(str)
 	tokens = {}
@@ -1894,6 +2098,8 @@ function tokenize(str)
 			
 		elseif c == "[" then table.insert(tokens, LBraToken()) i = i+1
 		elseif c == "]" then table.insert(tokens, RBraToken()) i = i+1
+		elseif c == "=" then table.insert(tokens, EqualToken()) i = i+1
+		
 		elseif c == "," then table.insert(tokens, CommaToken()) i = i+1
 		elseif c == ";" then table.insert(tokens, SemiToken()) i = i+1
 		
@@ -1971,12 +2177,59 @@ function parse(p)
 	return exp
 end
 
+-- Euclide!
+function gcd(a, b)
+	if a == b then
+		return a
+	elseif a > b then
+		return gcd(a-b, b)
+	else -- a < b
+		return gcd(b-a, a)
+	end
+end
+
 function putParen(exp, p)
 	if exp.priority() < p then
 		return "(" .. exp.toString() .. ")"
 	else
 		return exp.toString()
 	end
+end
+
+function collectUpperMul(root, coeff, collect, collectMat, rest)
+	if root.kind == "mulexp" then
+		coeff = collectUpperMul(root.left, coeff, collect, collectMat, rest)
+		coeff = collectUpperMul(root.right, coeff, collect, collectMat, rest)
+	else
+		local combined = root.combined()
+		if combined.kind == "presubexp" then
+			coeff = coeff * -1
+			combined = combined.left
+		end
+		if combined.kind == "symexp" then
+			if not collect[combined.sym] then
+				collect[combined.sym] = 0
+			end
+			collect[combined.sym] = collect[combined.sym]+1
+			
+		elseif combined.kind == "expexp" and combined.left.kind == "symexp" and combined.right.kind == "numexp" then
+			local sym, num = combined.left.sym, combined.right.num
+			if not collect[combined.left.sym] then
+				collect[combined.left.sym] = 0
+			end
+			collect[combined.left.sym] = collect[combined.left.sym] + combined.right.num
+			
+		elseif combined.kind == "numexp" then
+			coeff = coeff * combined.num
+		elseif combined.kind == "matexp" then
+			table.insert(collectMat, combined)
+		
+		else
+			table.insert(rest, combined)
+		end
+		
+	end
+	return coeff
 end
 
 function copysign(mag, sign)
