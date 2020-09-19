@@ -32,6 +32,8 @@ local FunExpression
 
 local ExpExpression
 
+local collectUpperAddExpand
+
 local putParen
 
 local collectUpperMul
@@ -87,6 +89,8 @@ local function computeDeterminant(rows, n, i, taken, add_exp, mul_exp)
 	end
 	return add_exp
 end
+
+local collectCoeffsAndConstant
 
 tokens = {}
 
@@ -177,7 +181,7 @@ function AddExpression(left, right)
 	end
 	function self.toString() 
 		if self.right.kind == "presubexp" then
-			return putParen(self.left, self.priority()) .. "-" .. putParen(self.right.left, self.priority())
+			return putParen(self.left, self.priority()) .. "-" .. putParen(self.right.left, self.right.priority())
 		elseif self.right.kind == "numexp" and self.right.num < 0 then
 			return putParen(self.left, self.priority()) .. "-" .. putParen(NumExpression(math.abs(self.right.num)), self.priority())
 		else
@@ -515,7 +519,16 @@ function PrefixSubExpression(left)
 	
 	function self.expand() 
 		local t1 = self.left.expand()
-		return PrefixSubExpression(t1)
+	
+		local collectLeft = {}
+		collectUpperAddExpand(t1, collectLeft)
+	
+		local add_exp = nil
+		for _,term in ipairs(collectLeft) do
+			local new_term = PrefixSubExpression(term)
+			add_exp = (add_exp and AddExpression(add_exp, new_term)) or new_term
+		end
+		return add_exp
 	end
 	function self.toString() 
 		return "-" .. putParen(self.left, self.priority()) .. ""
@@ -669,8 +682,6 @@ return self end
 
 function MulExpression(left, right)
 	local self = { kind = "mulexp", left = left, right = right }
-	local collectUpperAddExpand
-	
 	function self.eval() 
 		local t1 = self.left.eval()
 		local t2 = self.right.eval()
@@ -702,24 +713,6 @@ function MulExpression(left, right)
 		return exp_add
 	end
 	
-	
-	function collectUpperAddExpand(root, collect)
-		if root.kind == "addexp" then
-			collectUpperAddExpand(root.left, collect)
-			collectUpperAddExpand(root.right, collect)
-		else
-			local expanded = root.expand()
-			if root.kind == "mulexp" or root.kind == "expexp" then
-				if expanded.kind == "addexp" then
-					collectUpperAddExpand(expanded, collect)
-				else
-					table.insert(collect, expanded)
-				end
-			else
-				table.insert(collect, expanded)
-			end
-		end
-	end
 	
 	function self.toString() 
 		if self.left.kind == "numexp" and self.right.getLeft().kind ~= "numexp" then
@@ -1013,6 +1006,7 @@ function DivExpression(left, right)
 		
 	
 		exp_num = exp_num or NumExpression(1)
+		exp_num = (coeffSign == -1 and PrefixSubExpression(exp_num)) or exp_num
 		if not exp_den then
 			return exp_num
 		end
@@ -1485,6 +1479,107 @@ function FunExpression(name, args)
 			return res.combined()
 		end
 		
+		if self.name == "solve" then
+			assert(#fargs > 0, "solve() expects more than no 0 argument found " .. #fargs)
+		
+			local eargs = {}
+			for _, arg in ipairs(fargs) do 
+				local t = arg
+				if t.kind == "symexp" then
+					assert(symTable[t.sym], "undefined symbol " .. t.sym)
+					t = symTable[t.sym]
+				end
+				assert(t.kind == "eqexp", "solve() arguments must be equations found " .. t.kind)
+				table.insert(eargs, t)
+			end
+			
+			local unknowns = {}
+			local args = {}
+			
+			for _, arg in ipairs(eargs) do
+				arg.collectUnknowns(unknowns)
+			end
+			
+			for unknown,_ in pairs(unknowns) do
+				table.insert(args, unknown)
+			end
+			
+			assert(countMap(unknowns) == #eargs, "number of equations must match number of unknowns #eq " .. #eargs .. " #unk " .. countMap(unknowns))
+			
+			local eqs = {}
+			
+			for i, arg in ipairs(eargs) do
+				eqs[i] = AddExpression(PrefixSubExpression(arg.left), arg.right).expand().combined()
+			end
+			
+			local allcoeffs = {}
+			for _,eq in ipairs(eqs) do
+				local coeffs = {}
+				collectCoeffsAndConstant(coeffs, eq, 1)
+				table.insert(allcoeffs, coeffs)
+			end
+			
+			local rows = {}
+			for _,coeffs in ipairs(allcoeffs) do
+				local row = {}
+				for _,unk in ipairs(args) do
+					table.insert(row, NumExpression(coeffs[unk] or 0)) 
+				end
+				table.insert(row, NumExpression(-coeffs["#constant"] or 0)) 
+				table.insert(rows, row) 
+			end
+			
+			local t1 = MatrixExpression(rows, #eqs, #eargs+1)
+			
+			
+		
+			local res = t1.expand()
+			local rows = res.rows;
+			for i=1,t1.m do
+				local s
+				for l=i,t1.m do
+					rows[l][i] = rows[l][i].expand().combined()
+					if not isZero(rows[l][i]) then
+						s = l
+						break
+					end
+				end
+				
+				assert(s, "inv() could not invert matrix")
+				
+				if s ~= i then
+					for o=i,t1.n do
+						rows[s][o], rows[i][o] = rows[i][l], rows[s][l]
+					end
+				end
+				
+				local coeff = rows[i][i].combined()
+				for l=i,t1.n do
+					rows[i][l] = DivExpression(rows[i][l], coeff)
+				end
+				
+				for k=1,t1.m do
+					if k ~= i then
+						local coeff = rows[k][i]
+						
+						for l=i,t1.n do
+							rows[k][l] = AddExpression(PrefixSubExpression(MulExpression(coeff, rows[i][l])), rows[k][l])
+						end
+						
+					end
+				end
+			end
+			
+			local solrows = {}
+			for i,arg in ipairs(args) do
+				table.insert(solrows, { EqualExpression(SymExpression(arg), res.rows[i][#args+1])})
+			end
+			
+			local sol_exp = MatrixExpression(solrows, #solrows, 1)
+		
+			return sol_exp
+		end
+		
 		return FunExpression(self.name, fargs) 
 	end
 	
@@ -1826,6 +1921,7 @@ function MatrixExpression(rows, m, n)
 			end
 		end
 	end
+	
 return self end
 
 function EqualExpression(left, right) 
@@ -1846,29 +1942,21 @@ function EqualExpression(left, right)
 		return EqualExpression(self.left.expand(), self.right.expand())
 	end
 	
-	-- @apply_functions_for_expand+=
-	-- if self.name == "solve" then
-	-- 	assert(#fargs > 0, "solve() expects more than no 0 argument found " .. #fargs)
-	-- 
-	-- 	@get_solve_arguments_and_check_equations
-	-- 	@collect_unknowns_for_solve
-	-- 	@from_equations_build_matrix
-	-- 	@solve_matrix_for_solve
-	-- 	@build_matrix_with_solve_solutions
-	-- 
-	-- 	return sol_exp
-	-- end
-	-- 
-	-- @get_solve_arguments_and_check_equations+=
-	-- local eargs = {}
-	-- for _, arg in ipairs(fargs) do 
-	-- 	local t = arg
-	-- 	if t.kind == "symexp" then
-	-- 		assert(symTable[t.sym], "undefined symbol " .. t.sym)
-	-- 		t = symTable[t.sym]
-	-- 	end
-	-- 	assert(
-	-- end
+	
+	function self.collectUnknowns(unknowns)
+		self.left.collectUnknowns(unknowns)
+		self.right.collectUnknowns(unknowns)
+	end
+	function self.introspect(prefix) 
+		prefix = prefix or ""
+		print(prefix .. "eqexp")
+		print(prefix .. "left {")
+		self.left.introspect(prefix .. "  ")
+		print(prefix .. "}")
+		print(prefix .. "right {")
+		self.right.introspect(prefix .. "  ")
+		print(prefix .. "}")
+	end
 	
 return self end
 
@@ -2180,6 +2268,24 @@ function parse(p)
 	return exp
 end
 
+function collectUpperAddExpand(root, collect)
+	if root.kind == "addexp" then
+		collectUpperAddExpand(root.left, collect)
+		collectUpperAddExpand(root.right, collect)
+	else
+		local expanded = root.expand()
+		if root.kind == "mulexp" or root.kind == "expexp" then
+			if expanded.kind == "addexp" then
+				collectUpperAddExpand(expanded, collect)
+			else
+				table.insert(collect, expanded)
+			end
+		else
+			table.insert(collect, expanded)
+		end
+	end
+end
+
 -- Euclide!
 function gcd(a, b)
 	if a == b then
@@ -2295,6 +2401,36 @@ function isInteger(x)
 	return math.floor(x) == x
 end
 
+function collectCoeffsAndConstant(coeffs, eq, sign)
+	if eq.kind == "addexp" then
+		collectCoeffsAndConstant(coeffs, eq.left, sign)
+		collectCoeffsAndConstant(coeffs, eq.right, sign)
+	elseif eq.kind == "mulexp" then
+		if eq.left.kind == "numexp" and eq.right.kind == "symexp" then
+			local coeff, term = eq.left.num, eq.right.sym
+			coeffs[term] = (coeffs[term] and coeffs[term]+sign*coeff) or sign*coeff
+			
+		elseif eq.left.kind == "symexp" and eq.right.kind == "numexp" then
+			local coeff, term = eq.right.num, eq.left.sym
+			coeffs[term] = (coeffs[term] and coeffs[term]+sign*coeff) or sign*coeff
+			
+		else
+			error("Unsupported mulexp for solve left " .. eq.left.kind .. " right " .. eq.right.kind)
+		end
+	elseif eq.kind == "numexp" then
+		coeffs["#constant"] = (coeffs["#constant"] and coeffs["#constant"]+sign*eq.num) or sign*eq.num
+		
+	elseif eq.kind == "symexp" then
+		local coeff, term = 1, eq.sym
+		coeffs[term] = (coeffs[term] and coeffs[term]+sign*coeff) or sign*coeff
+		
+	elseif eq.kind == "presubexp" then
+		collectCoeffsAndConstant(coeffs, eq.left, sign*-1)
+	else
+		error("Unsupported kind for solve " .. eq.kind)
+	end
+end
+
 
 function parseAll(str)
 	tokenize(str)
@@ -2315,7 +2451,7 @@ function expand(line)
 	symTable["answer"] = exp
 	
 	local res = exp.substitute().expand().combined()
-	local line = res.toString()
+	local line = string.gsub(res.toString(), "%+%-", "-") -- Giant hack
 	vim.api.nvim_buf_set_lines(0, -1, -1, true, { line })
 	
 end
