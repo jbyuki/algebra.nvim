@@ -44,6 +44,16 @@ Examples
 ```
 4*pi
 ```
+### `equal`
+This token can be used to build an equation expression.
+This does not assign any variables.
+For assignement see `:=`.
+Examples:
+```
+x + y = 2
+EQ1 := 3x + 2z = 10
+```
+
 ### `Addition`
 Examples:
 ```
@@ -250,6 +260,17 @@ Arguments:
 ```
 A := [1,2;3,4]
 inv(A)
+```
+
+### `solve(...)`
+Solves a linear system of equations.
+
+Arguments:
+* `...`: list of equations
+```
+EQ1 := x + y = 10
+EQ2 := 3x + 2y = 26
+solve(EQ1, EQ2)
 ```
 
 

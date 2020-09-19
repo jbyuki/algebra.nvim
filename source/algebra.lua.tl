@@ -2994,6 +2994,17 @@ function EqualExpression(left, right)
 	@eq_exp_methods
 return self end
 
+@token_reference+=
+### `equal`
+This token can be used to build an equation expression.
+This does not assign any variables.
+For assignement see `:=`.
+Examples:
+```
+x + y = 2
+EQ1 := 3x + 2z = 10
+```
+
 @eq_exp_methods+=
 function self.toString()
 	local t1 = self.left.toString()
@@ -3126,6 +3137,18 @@ if self.name == "solve" then
 
 	return sol_exp
 end
+
+@functions_reference+=
+### `solve(...)`
+Solves a linear system of equations.
+
+Arguments:
+* `...`: list of equations
+```
+EQ1 := x + y = 10
+EQ2 := 3x + 2y = 26
+solve(EQ1, EQ2)
+```
 
 @get_solve_arguments_and_check_equations+=
 local eargs = {}
