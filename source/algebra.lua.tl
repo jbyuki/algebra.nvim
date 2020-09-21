@@ -672,9 +672,10 @@ function self.eval()
 		-- print("arg list " .. vim.inspect(args))
 		-- print("t1 " .. vim.inspect(t1))
 		-- print("fargs " .. vim.inspect(fargs))
+		@save_variable_which_are_args
 		@assign_variables_to_args
 		local res = t1.eval()
-		@unassign_variable_to_args
+		@restore_variable_which_are_args
 		return res
 	end
 	return NumExpression(funs[self.name](unpack(fargs)))
@@ -688,12 +689,7 @@ end
 
 @assign_variables_to_args+=
 for i,arg in pairs(args) do
-	symTable[arg] = NumExpression(fargs[i])
-end
-
-@unassign_variable_to_args+=
-for i,arg in pairs(args) do
-	symTable[arg] = nil
+	symTable[arg] = fargs[i]
 end
 
 @tokens+=
@@ -3269,3 +3265,32 @@ for i,arg in ipairs(args) do
 end
 
 local sol_exp = MatrixExpression(solrows, #solrows, 1)
+
+@apply_functions_for_expand+=
+if symTable[self.name] then
+	@expand_function_arguments
+	local t1 = symTable[self.name]
+	@collect_arg_list
+	@save_variable_which_are_args
+	@assign_variables_to_args
+	local res = t1.expand()
+	@restore_variable_which_are_args
+	return res
+end
+
+@expand_function_arguments+=
+local fargs = {}
+for _,arg in ipairs(self.args) do
+	table.insert(fargs, arg.expand())
+end
+
+@save_variable_which_are_args+=
+local saved = {}
+for _,arg in pairs(args) do
+	saved[arg] = symTable[arg]
+end
+
+@restore_variable_which_are_args+=
+for _,arg in pairs(args) do
+	symTable[arg] = saved[arg]
+end

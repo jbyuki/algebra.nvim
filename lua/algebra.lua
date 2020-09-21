@@ -1181,15 +1181,19 @@ function FunExpression(name, args)
 			-- print("arg list " .. vim.inspect(args))
 			-- print("t1 " .. vim.inspect(t1))
 			-- print("fargs " .. vim.inspect(fargs))
+			local saved = {}
+			for _,arg in pairs(args) do
+				saved[arg] = symTable[arg]
+			end
+			
 			for i,arg in pairs(args) do
-				symTable[arg] = NumExpression(fargs[i])
+				symTable[arg] = fargs[i]
 			end
 			
 			local res = t1.eval()
-			for i,arg in pairs(args) do
-				symTable[arg] = nil
+			for _,arg in pairs(args) do
+				symTable[arg] = saved[arg]
 			end
-			
 			return res
 		end
 		return NumExpression(funs[self.name](unpack(fargs)))
@@ -1576,8 +1580,34 @@ function FunExpression(name, args)
 			end
 			
 			local sol_exp = MatrixExpression(solrows, #solrows, 1)
+			
 		
 			return sol_exp
+		end
+		
+		if symTable[self.name] then
+			local fargs = {}
+			for _,arg in ipairs(self.args) do
+				table.insert(fargs, arg.expand())
+			end
+			
+			local t1 = symTable[self.name]
+			local args = collectArgs(t1)
+			
+			local saved = {}
+			for _,arg in pairs(args) do
+				saved[arg] = symTable[arg]
+			end
+			
+			for i,arg in pairs(args) do
+				symTable[arg] = fargs[i]
+			end
+			
+			local res = t1.expand()
+			for _,arg in pairs(args) do
+				symTable[arg] = saved[arg]
+			end
+			return res
 		end
 		
 		return FunExpression(self.name, fargs) 
