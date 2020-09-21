@@ -1195,8 +1195,15 @@ function FunExpression(name, args)
 				symTable[arg] = saved[arg]
 			end
 			return res
+		else
+			local nargs = {}
+			for i,arg in ipairs(fargs) do
+				assert(arg.kind == "numexp", "Expected number argument for " .. i .. " argument")
+				table.insert(nargs, arg.num)
+			end
+			
+			return NumExpression(funs[self.name](unpack(nargs)))
 		end
-		return NumExpression(funs[self.name](unpack(fargs)))
 	end
 	
 	function self.arity()

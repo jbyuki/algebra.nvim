@@ -677,8 +677,10 @@ function self.eval()
 		local res = t1.eval()
 		@restore_variable_which_are_args
 		return res
+	else
+		@transform_args_to_num
+		return NumExpression(funs[self.name](unpack(nargs)))
 	end
-	return NumExpression(funs[self.name](unpack(fargs)))
 end
 
 @evaluate_function_arguments+=
@@ -690,6 +692,13 @@ end
 @assign_variables_to_args+=
 for i,arg in pairs(args) do
 	symTable[arg] = fargs[i]
+end
+
+@transform_args_to_num+=
+local nargs = {}
+for i,arg in ipairs(fargs) do
+	assert(arg.kind == "numexp", "Expected number argument for " .. i .. " argument")
+	table.insert(nargs, arg.num)
 end
 
 @tokens+=
