@@ -1397,6 +1397,8 @@ end
 
 @multiply_coefficient_to_every_mat_cell+=
 local rows = {}
+table.insert(events, "exp_mat " .. vim.inspect(exp_mat))
+table.insert(events, "collectMat " .. vim.inspect(collectMat))
 for i=1,exp_mat.m do
 	local new_row = {}
 	for j=1,exp_mat.n do
@@ -2088,7 +2090,7 @@ function self.combinedMatrix()
 end
 
 @check_that_matrices_are_correct_for_multiplication+=
-if m1.m ~= m2.n or m1.n ~= m2.m then
+if m1.n ~= m2.m then
 	table.insert(events, "Matrix mul dimensions mismatch " .. m1.m .. "x" .. m1.n .. " times " .. m2.m .. "x" .. m2.n)
 	return
 end

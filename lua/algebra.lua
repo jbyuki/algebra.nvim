@@ -800,6 +800,8 @@ function MulExpression(left, right)
 			
 			if exp_mul then
 				local rows = {}
+				table.insert(events, "exp_mat " .. vim.inspect(exp_mat))
+				table.insert(events, "collectMat " .. vim.inspect(collectMat))
 				for i=1,exp_mat.m do
 					local new_row = {}
 					for j=1,exp_mat.n do
@@ -846,7 +848,7 @@ function MulExpression(left, right)
 	function self.combinedMatrix()
 		local m1 = (self.left.combinedMatrix and self.left.combinedMatrix()) or self.left
 		local m2 = (self.right.combinedMatrix and self.right.combinedMatrix()) or self.right
-		if m1.m ~= m2.n or m1.n ~= m2.m then
+		if m1.n ~= m2.m then
 			table.insert(events, "Matrix mul dimensions mismatch " .. m1.m .. "x" .. m1.n .. " times " .. m2.m .. "x" .. m2.n)
 			return
 		end
